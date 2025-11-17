@@ -702,8 +702,8 @@ class GLImageViewer(QOpenGLWidget):
 
         tex_w_f = float(tex_w)
         tex_h_f = float(tex_h)
-        width_px = max(1.0, min(tex_w_f, max(0.0, crop_w) * tex_w_f))
-        height_px = max(1.0, min(tex_h_f, max(0.0, crop_h) * tex_h_f))
+        width_px = max(1.0, min(tex_w_f, crop_w * tex_w_f))
+        height_px = max(1.0, min(tex_h_f, crop_h * tex_h_f))
 
         center_x = max(0.0, min(tex_w_f, crop_cx * tex_w_f))
         center_y = max(0.0, min(tex_h_f, crop_cy * tex_h_f))
