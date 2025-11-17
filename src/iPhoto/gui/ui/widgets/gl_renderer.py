@@ -10,7 +10,6 @@ API tailored to the viewer.
 from __future__ import annotations
 
 import logging
-import math
 import time
 from pathlib import Path
 from typing import Mapping, Optional
@@ -28,6 +27,8 @@ from PySide6.QtOpenGL import (
 )
 from OpenGL import GL as gl
 from shiboken6.Shiboken import VoidPtr
+
+from .perspective_math import build_perspective_matrix
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,44 +60,6 @@ def _load_shader_source(filename: str) -> str:
         return shader_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise RuntimeError(f"Failed to load shader '{filename}': {exc}") from exc
-
-
-def _build_perspective_matrix(vertical: float, horizontal: float) -> np.ndarray:
-    """Return a projective matrix that counteracts the stored skew."""
-
-    clamped_v = max(-1.0, min(1.0, float(vertical)))
-    clamped_h = max(-1.0, min(1.0, float(horizontal)))
-    if abs(clamped_v) <= 1e-5 and abs(clamped_h) <= 1e-5:
-        return np.identity(3, dtype=np.float32)
-
-    angle_scale = math.radians(20.0)
-    angle_x = clamped_v * angle_scale
-    angle_y = clamped_h * angle_scale
-
-    cos_x = math.cos(angle_x)
-    sin_x = math.sin(angle_x)
-    cos_y = math.cos(angle_y)
-    sin_y = math.sin(angle_y)
-
-    rx = np.array(
-        [
-            [1.0, 0.0, 0.0],
-            [0.0, cos_x, -sin_x],
-            [0.0, sin_x, cos_x],
-        ],
-        dtype=np.float32,
-    )
-    ry = np.array(
-        [
-            [cos_y, 0.0, sin_y],
-            [0.0, 1.0, 0.0],
-            [-sin_y, 0.0, cos_y],
-        ],
-        dtype=np.float32,
-    )
-
-    matrix = np.matmul(ry, rx)
-    return matrix.astype(np.float32)
 
 
 class GLRenderer:
