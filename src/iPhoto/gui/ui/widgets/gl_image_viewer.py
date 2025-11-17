@@ -718,7 +718,8 @@ class GLImageViewer(QOpenGLWidget):
 
         rect_width = max(1.0, right - left)
         rect_height = max(1.0, bottom - top)
-        if rect_width >= tex_w_f and rect_height >= tex_h_f:
+        epsilon = 1e-6
+        if rect_width >= tex_w_f - epsilon and rect_height >= tex_h_f - epsilon:
             return None
         return QRectF(left, top, rect_width, rect_height)
 
