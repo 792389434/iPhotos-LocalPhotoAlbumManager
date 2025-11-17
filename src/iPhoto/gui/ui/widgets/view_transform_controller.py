@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
@@ -327,6 +327,47 @@ class ViewTransformController:
         # where increasing values travel down the texture.
         tex_y = tex_h / 2.0 - tex_vector_y
         return QPointF(tex_x, tex_y)
+
+    def frame_texture_rect(self, rect: QRectF) -> bool:
+        """Zoom and pan so that *rect* fills the viewport.
+
+        Parameters
+        ----------
+        rect:
+            Rectangle expressed in texture pixel coordinates that should fill
+            the viewport using an aspect-preserving fit.
+
+        Returns
+        -------
+        bool
+            ``True`` when the controller successfully applied the transform.
+        """
+
+        tex_w, tex_h = self._texture_size_provider()
+        if tex_w <= 0 or tex_h <= 0:
+            return False
+        if rect.width() <= 0.0 or rect.height() <= 0.0:
+            return False
+
+        view_width, view_height = self._get_view_dimensions_device_px()
+        if view_width <= 0.0 or view_height <= 0.0:
+            return False
+
+        base_scale = compute_fit_to_view_scale((tex_w, tex_h), view_width, view_height)
+        if base_scale <= 0.0:
+            return False
+
+        target_scale = compute_fit_to_view_scale(
+            (float(rect.width()), float(rect.height())), view_width, view_height
+        )
+        if target_scale <= 0.0:
+            return False
+
+        target_zoom = target_scale / base_scale
+        self.set_zoom_factor_direct(target_zoom)
+        effective_scale = base_scale * self._zoom_factor
+        self.apply_image_center_pixels(rect.center(), scale=effective_scale)
+        return True
 
     # ------------------------------------------------------------------
     # Convenience methods that use internal viewport state
