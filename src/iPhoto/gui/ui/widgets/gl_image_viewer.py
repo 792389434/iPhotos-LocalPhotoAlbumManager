@@ -11,7 +11,7 @@ import time
 from collections.abc import Mapping
 
 from OpenGL import GL as gl
-from PySide6.QtCore import QPointF, QSize, Qt, Signal
+from PySide6.QtCore import QPointF, QSize, Qt, Signal, QRectF
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -118,6 +118,7 @@ class GLImageViewer(QOpenGLWidget):
             on_request_update=self.update,
             timer_parent=self,
         )
+        self._auto_crop_view_locked: bool = False
 
     # --------------------------- Public API ---------------------------
 
@@ -178,6 +179,7 @@ class GLImageViewer(QOpenGLWidget):
 
         if image is None or image.isNull():
             self._current_image_source = None
+            self._auto_crop_view_locked = False
             renderer = self._renderer
             if renderer is not None:
                 gl_context = self.context()
@@ -239,6 +241,8 @@ class GLImageViewer(QOpenGLWidget):
 
         mapped_adjustments = dict(adjustments or {})
         self._adjustments = mapped_adjustments
+        if self._auto_crop_view_locked and not self._crop_controller.is_active():
+            self._reapply_locked_crop_view()
         self.update()
 
     def current_image_source(self) -> object | None:
@@ -291,11 +295,17 @@ class GLImageViewer(QOpenGLWidget):
     def set_zoom(self, factor: float, anchor: QPointF | None = None) -> None:
         """Adjust the zoom while preserving the requested *anchor* pixel."""
 
+        self._cancel_auto_crop_lock()
         anchor_point = anchor or self.viewport_center()
         self._transform_controller.set_zoom(float(factor), anchor_point)
 
     def reset_zoom(self) -> None:
-        self._transform_controller.reset_zoom()
+        if self._crop_controller.is_active():
+            self._transform_controller.reset_zoom()
+            return
+        if not self._frame_crop_if_available():
+            self._auto_crop_view_locked = False
+            self._transform_controller.reset_zoom()
 
     def zoom_in(self) -> None:
         current = self._transform_controller.get_zoom_factor()
@@ -463,7 +473,13 @@ class GLImageViewer(QOpenGLWidget):
     # --------------------------- Crop helpers ---------------------------
 
     def setCropMode(self, enabled: bool, values: Mapping[str, float] | None = None) -> None:
+        was_active = self._crop_controller.is_active()
         self._crop_controller.set_active(enabled, values)
+        if enabled and not was_active:
+            self._cancel_auto_crop_lock()
+            self._transform_controller.reset_zoom()
+        elif not enabled and was_active:
+            self.reset_zoom()
 
     def crop_values(self) -> dict[str, float]:
         return self._crop_controller.get_crop_values()
@@ -565,6 +581,7 @@ class GLImageViewer(QOpenGLWidget):
             if self._live_replay_enabled:
                 self.replayRequested.emit()
             else:
+                self._cancel_auto_crop_lock()
                 self._transform_controller.handle_mouse_press(event)
         super().mousePressEvent(event)
 
@@ -600,6 +617,7 @@ class GLImageViewer(QOpenGLWidget):
         if self._crop_controller.is_active():
             self._crop_controller.handle_wheel(event)
             return
+        self._cancel_auto_crop_lock()
         self._transform_controller.handle_wheel(event)
 
     def resizeGL(self, w: int, h: int) -> None:
@@ -613,6 +631,8 @@ class GLImageViewer(QOpenGLWidget):
         super().resizeEvent(event)
         if self._loading_overlay is not None:
             self._loading_overlay.resize(self.size())
+        if self._auto_crop_view_locked and not self._crop_controller.is_active():
+            self._reapply_locked_crop_view()
 
     # --------------------------- Cursor management and helpers ---------------------------
 
@@ -626,9 +646,89 @@ class GLImageViewer(QOpenGLWidget):
     def _texture_dimensions(self) -> tuple[int, int]:
         """Return the current texture size or ``(0, 0)`` when unavailable."""
 
-        if self._renderer is None:
-            return (0, 0)
-        return self._renderer.texture_size()
+        if self._renderer is not None and self._renderer.has_texture():
+            return self._renderer.texture_size()
+        if self._image is not None and not self._image.isNull():
+            return (self._image.width(), self._image.height())
+        return (0, 0)
+
+    def _frame_crop_if_available(self) -> bool:
+        """Frame the active crop rectangle if the adjustments define one."""
+
+        if self._crop_controller.is_active():
+            return False
+        crop_rect = self._compute_crop_rect_pixels()
+        if crop_rect is None:
+            self._auto_crop_view_locked = False
+            return False
+        if self._transform_controller.frame_texture_rect(crop_rect):
+            self._auto_crop_view_locked = True
+            return True
+        return False
+
+    def _reapply_locked_crop_view(self) -> None:
+        """Re-apply the stored crop framing after resizes or adjustment edits."""
+
+        if not self._auto_crop_view_locked:
+            return
+        crop_rect = self._compute_crop_rect_pixels()
+        if crop_rect is None:
+            self._auto_crop_view_locked = False
+            return
+        if not self._transform_controller.frame_texture_rect(crop_rect):
+            self._auto_crop_view_locked = False
+            return
+
+    def _cancel_auto_crop_lock(self) -> None:
+        """Disable auto-crop framing so manual gestures stay respected."""
+
+        self._auto_crop_view_locked = False
+
+    def _compute_crop_rect_pixels(self) -> QRectF | None:
+        """Return the crop rectangle expressed in texture pixels."""
+
+        texture_size = self._texture_dimensions()
+        tex_w, tex_h = texture_size
+        if tex_w <= 0 or tex_h <= 0:
+            return None
+
+        crop_w = float(self._adjustments.get("Crop_W", 1.0))
+        crop_h = float(self._adjustments.get("Crop_H", 1.0))
+        if not self._has_valid_crop(crop_w, crop_h):
+            return None
+
+        crop_cx = float(self._adjustments.get("Crop_CX", 0.5))
+        crop_cy = float(self._adjustments.get("Crop_CY", 0.5))
+
+        tex_w_f = float(tex_w)
+        tex_h_f = float(tex_h)
+        width_px = max(1.0, min(tex_w_f, crop_w * tex_w_f))
+        height_px = max(1.0, min(tex_h_f, crop_h * tex_h_f))
+
+        center_x = max(0.0, min(tex_w_f, crop_cx * tex_w_f))
+        center_y = max(0.0, min(tex_h_f, crop_cy * tex_h_f))
+
+        half_w = width_px * 0.5
+        half_h = height_px * 0.5
+
+        left = max(0.0, center_x - half_w)
+        top = max(0.0, center_y - half_h)
+        right = min(tex_w_f, center_x + half_w)
+        bottom = min(tex_h_f, center_y + half_h)
+
+        rect_width = max(1.0, right - left)
+        rect_height = max(1.0, bottom - top)
+        epsilon = 1e-6
+        if rect_width >= tex_w_f - epsilon and rect_height >= tex_h_f - epsilon:
+            return None
+        return QRectF(left, top, rect_width, rect_height)
+
+    @staticmethod
+    def _has_valid_crop(crop_w: float, crop_h: float) -> bool:
+        """Return ``True`` when the adjustments describe a cropped image."""
+
+        epsilon = 1e-3
+        return (crop_w < 1.0 - epsilon or crop_h < 1.0 - epsilon) and crop_w > 0.0 and crop_h > 0.0
 
     def _fit_to_view_scale(self, view_width: float, view_height: float) -> float:
         """Return the baseline scale that fits the texture within the viewport."""
