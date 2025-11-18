@@ -436,6 +436,11 @@ class ViewTransformController:
             return
         self._image_cover_scale = clamped
         self._viewer.update()
+
+    def get_image_cover_scale(self) -> float:
+        """Return the scale multiplier currently applied to cover rotations."""
+
+        return self._image_cover_scale
     
     def convert_screen_to_world(self, screen_pt: QPointF) -> QPointF:
         """Map a Qt screen coordinate to GL view's centre-origin space."""

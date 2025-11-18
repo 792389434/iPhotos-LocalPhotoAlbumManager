@@ -430,10 +430,8 @@ class GLImageViewer(QOpenGLWidget):
         if not self._renderer.has_texture():
             return
 
-        texture_size = self._renderer.texture_size()
-        base_scale = compute_fit_to_view_scale(texture_size, float(vw), float(vh))
-        zoom_factor = self._transform_controller.get_zoom_factor()
-        effective_scale = max(base_scale * zoom_factor, 1e-6)
+        effective_scale = self._transform_controller.get_effective_scale()
+        cover_scale = self._transform_controller.get_image_cover_scale()
 
         time_value = time.monotonic() - self._time_base
         
@@ -465,6 +463,7 @@ class GLImageViewer(QOpenGLWidget):
             pan=view_pan,
             adjustments=effective_adjustments,
             time_value=time_value,
+            img_scale=cover_scale,
         )
 
         if self._crop_controller.is_active():
