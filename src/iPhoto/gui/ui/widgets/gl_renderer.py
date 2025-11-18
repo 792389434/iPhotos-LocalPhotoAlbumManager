@@ -365,9 +365,15 @@ class GLRenderer:
             self._set_uniform1f("uCropCY", adjustment_value("Crop_CY", 0.5))
             self._set_uniform1f("uCropW", adjustment_value("Crop_W", 1.0))
             self._set_uniform1f("uCropH", adjustment_value("Crop_H", 1.0))
+            straighten_value = adjustment_value("Crop_Straighten", 0.0)
+            rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
+            flip_enabled = bool(adjustments.get("Crop_FlipH", False))
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
+                straighten_degrees=straighten_value,
+                rotate_steps=rotate_steps,
+                flip_horizontal=flip_enabled,
             )
             self._set_uniform_matrix3("uPerspectiveMatrix", perspective_matrix)
 

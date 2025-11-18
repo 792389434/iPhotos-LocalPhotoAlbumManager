@@ -103,6 +103,9 @@ class CropInteractionController:
         self._crop_faded_out: bool = False
         self._perspective_vertical: float = 0.0
         self._perspective_horizontal: float = 0.0
+        self._straighten_degrees: float = 0.0
+        self._rotate_steps: int = 0
+        self._flip_horizontal: bool = False
         self._perspective_quad: list[tuple[float, float]] = unit_quad()
         self._baseline_crop_state: tuple[float, float, float, float] | None = None
 
@@ -151,21 +154,43 @@ class CropInteractionController:
         # the automatic fit-to-view transition.
         self._restart_crop_idle()
 
-    def update_perspective(self, vertical: float, horizontal: float) -> None:
+    def update_perspective(
+        self,
+        vertical: float,
+        horizontal: float,
+        straighten: float = 0.0,
+        rotate_steps: int = 0,
+        flip_horizontal: bool = False,
+    ) -> None:
         """Refresh the cached perspective quad and enforce crop constraints."""
 
         new_vertical = float(vertical)
         new_horizontal = float(horizontal)
+        new_straighten = float(straighten)
+        new_rotate = int(rotate_steps)
+        new_flip = bool(flip_horizontal)
         if (
             abs(new_vertical - self._perspective_vertical) <= 1e-6
             and abs(new_horizontal - self._perspective_horizontal) <= 1e-6
+            and abs(new_straighten - self._straighten_degrees) <= 1e-6
+            and new_rotate == self._rotate_steps
+            and new_flip is self._flip_horizontal
             and self._baseline_crop_state is None
         ):
             return
 
         self._perspective_vertical = new_vertical
         self._perspective_horizontal = new_horizontal
-        matrix = build_perspective_matrix(new_vertical, new_horizontal)
+        self._straighten_degrees = new_straighten
+        self._rotate_steps = new_rotate
+        self._flip_horizontal = new_flip
+        matrix = build_perspective_matrix(
+            new_vertical,
+            new_horizontal,
+            straighten_degrees=new_straighten,
+            rotate_steps=new_rotate,
+            flip_horizontal=new_flip,
+        )
         self._perspective_quad = compute_projected_quad(matrix)
 
         if self._baseline_crop_state is not None:

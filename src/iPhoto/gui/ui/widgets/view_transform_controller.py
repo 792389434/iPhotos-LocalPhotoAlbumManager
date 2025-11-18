@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -26,6 +27,41 @@ def compute_fit_to_view_scale(
     height_ratio = view_height / float(tex_h)
     scale = min(width_ratio, height_ratio)
     return 1.0 if scale <= 0.0 else scale
+
+
+def compute_rotation_cover_scale(
+    texture_size: tuple[int, int],
+    base_scale: float,
+    straighten_degrees: float,
+    rotate_steps: int,
+) -> float:
+    """Return the scale multiplier that keeps rotated images free of black corners."""
+
+    tex_w, tex_h = texture_size
+    if tex_w <= 0 or tex_h <= 0 or base_scale <= 0.0:
+        return 1.0
+    total_degrees = float(straighten_degrees) + float(int(rotate_steps)) * -90.0
+    if abs(total_degrees) <= 1e-5:
+        return 1.0
+    theta = math.radians(total_degrees)
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    half_frame_w = tex_w * base_scale * 0.5
+    half_frame_h = tex_h * base_scale * 0.5
+    corners = [
+        (-half_frame_w, -half_frame_h),
+        (half_frame_w, -half_frame_h),
+        (half_frame_w, half_frame_h),
+        (-half_frame_w, half_frame_h),
+    ]
+    scale = 1.0
+    for xf, yf in corners:
+        x_prime = xf * cos_t + yf * sin_t
+        y_prime = -xf * sin_t + yf * cos_t
+        s_corner = max((2.0 * abs(x_prime)) / tex_w, (2.0 * abs(y_prime)) / tex_h)
+        if s_corner > scale:
+            scale = s_corner
+    return max(scale, 1.0)
 
 
 class ViewTransformController:
@@ -53,6 +89,7 @@ class ViewTransformController:
         self._is_panning: bool = False
         self._pan_start_pos: QPointF = QPointF()
         self._wheel_action: str = "zoom"
+        self._image_cover_scale: float = 1.0
 
     # ------------------------------------------------------------------
     # Helper methods for getting viewport info
@@ -148,8 +185,9 @@ class ViewTransformController:
             view_width = float(self._viewer.width()) * dpr
             view_height = float(self._viewer.height()) * dpr
             base_scale = compute_fit_to_view_scale((tex_w, tex_h), view_width, view_height)
-            old_scale = base_scale * self._zoom_factor
-            new_scale = base_scale * clamped
+            cover_scale = self._image_cover_scale
+            old_scale = base_scale * cover_scale * self._zoom_factor
+            new_scale = base_scale * cover_scale * clamped
             if old_scale > 1e-6 and new_scale > 0.0:
                 anchor_bottom_left = QPointF(anchor_point.x() * dpr, view_height - anchor_point.y() * dpr)
                 view_centre = QPointF(view_width / 2.0, view_height / 2.0)
@@ -260,7 +298,7 @@ class ViewTransformController:
     ) -> float:
         """Calculate the effective rendering scale (base scale × zoom factor)."""
         base_scale = compute_fit_to_view_scale(texture_size, view_width, view_height)
-        return max(base_scale * self._zoom_factor, 1e-6)
+        return max(base_scale * self._image_cover_scale * self._zoom_factor, 1e-6)
 
     def image_center_pixels(
         self, texture_size: tuple[int, int], scale: float
@@ -389,6 +427,15 @@ class ViewTransformController:
         texture_size = self._texture_size_provider()
         scale_value = scale if scale is not None else self.get_effective_scale()
         self.set_image_center_pixels(center, texture_size, scale_value)
+
+    def set_image_cover_scale(self, scale: float) -> None:
+        """Persist the cover scale used to avoid straightening artefacts."""
+
+        clamped = max(1.0, float(scale))
+        if abs(clamped - self._image_cover_scale) <= 1e-4:
+            return
+        self._image_cover_scale = clamped
+        self._viewer.update()
     
     def convert_screen_to_world(self, screen_pt: QPointF) -> QPointF:
         """Map a Qt screen coordinate to GL view's centre-origin space."""

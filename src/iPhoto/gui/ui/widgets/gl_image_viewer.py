@@ -32,6 +32,7 @@ from .gl_renderer import GLRenderer
 from .view_transform_controller import (
     ViewTransformController,
     compute_fit_to_view_scale,
+    compute_rotation_cover_scale,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -182,6 +183,7 @@ class GLImageViewer(QOpenGLWidget):
         if image is None or image.isNull():
             self._current_image_source = None
             self._auto_crop_view_locked = False
+            self._transform_controller.set_image_cover_scale(1.0)
             renderer = self._renderer
             if renderer is not None:
                 gl_context = self.context()
@@ -423,6 +425,8 @@ class GLImageViewer(QOpenGLWidget):
 
         if self._image is not None and not self._image.isNull() and not self._renderer.has_texture():
             self._renderer.upload_texture(self._image)
+            straighten, rotate_steps, _ = self._rotation_parameters()
+            self._update_cover_scale(straighten, rotate_steps)
         if not self._renderer.has_texture():
             return
 
@@ -504,7 +508,43 @@ class GLImageViewer(QOpenGLWidget):
             return
         vertical = float(self._adjustments.get("Perspective_Vertical", 0.0))
         horizontal = float(self._adjustments.get("Perspective_Horizontal", 0.0))
-        self._crop_controller.update_perspective(vertical, horizontal)
+        straighten, rotate_steps, flip = self._rotation_parameters()
+        self._crop_controller.update_perspective(
+            vertical,
+            horizontal,
+            straighten,
+            rotate_steps,
+            flip,
+        )
+        self._update_cover_scale(straighten, rotate_steps)
+
+    def _rotation_parameters(self) -> tuple[float, int, bool]:
+        """Return the straighten angle, rotate steps, and flip toggle."""
+
+        straighten = float(self._adjustments.get("Crop_Straighten", 0.0))
+        rotate_steps = int(float(self._adjustments.get("Crop_Rotate90", 0.0)))
+        flip = bool(self._adjustments.get("Crop_FlipH", False))
+        return straighten, rotate_steps, flip
+
+    def _update_cover_scale(self, straighten_deg: float, rotate_steps: int) -> None:
+        """Compute the rotation cover scale and forward it to the transform controller."""
+
+        if not self._renderer or not self._renderer.has_texture():
+            self._transform_controller.set_image_cover_scale(1.0)
+            return
+        tex_w, tex_h = self._renderer.texture_size()
+        if tex_w <= 0 or tex_h <= 0:
+            self._transform_controller.set_image_cover_scale(1.0)
+            return
+        view_width, view_height = self._view_dimensions_device_px()
+        base_scale = compute_fit_to_view_scale((tex_w, tex_h), float(view_width), float(view_height))
+        cover_scale = compute_rotation_cover_scale(
+            (tex_w, tex_h),
+            base_scale,
+            straighten_deg,
+            rotate_steps,
+        )
+        self._transform_controller.set_image_cover_scale(cover_scale)
 
     # --------------------------- Coordinate transformations ---------------------------
 
@@ -655,6 +695,8 @@ class GLImageViewer(QOpenGLWidget):
             self._loading_overlay.resize(self.size())
         if self._auto_crop_view_locked and not self._crop_controller.is_active():
             self._reapply_locked_crop_view()
+        straighten, rotate_steps, _ = self._rotation_parameters()
+        self._update_cover_scale(straighten, rotate_steps)
 
     # --------------------------- Cursor management and helpers ---------------------------
 

@@ -34,41 +34,76 @@ class NormalisedRect:
         )
 
 
-def build_perspective_matrix(vertical: float, horizontal: float) -> np.ndarray:
+def build_perspective_matrix(
+    vertical: float,
+    horizontal: float,
+    *,
+    straighten_degrees: float = 0.0,
+    rotate_steps: int = 0,
+    flip_horizontal: bool = False,
+) -> np.ndarray:
     """Return the 3×3 matrix that maps projected UVs back to texture UVs."""
 
     clamped_v = max(-1.0, min(1.0, float(vertical)))
     clamped_h = max(-1.0, min(1.0, float(horizontal)))
-    if abs(clamped_v) <= 1e-5 and abs(clamped_h) <= 1e-5:
-        return np.identity(3, dtype=np.float32)
+    has_perspective = abs(clamped_v) > 1e-5 or abs(clamped_h) > 1e-5
 
-    angle_scale = math.radians(20.0)
-    angle_x = clamped_v * angle_scale
-    angle_y = clamped_h * angle_scale
+    if has_perspective:
+        angle_scale = math.radians(20.0)
+        angle_x = clamped_v * angle_scale
+        angle_y = clamped_h * angle_scale
 
-    cos_x = math.cos(angle_x)
-    sin_x = math.sin(angle_x)
-    cos_y = math.cos(angle_y)
-    sin_y = math.sin(angle_y)
+        cos_x = math.cos(angle_x)
+        sin_x = math.sin(angle_x)
+        cos_y = math.cos(angle_y)
+        sin_y = math.sin(angle_y)
 
-    rx = np.array(
-        [
-            [1.0, 0.0, 0.0],
-            [0.0, cos_x, -sin_x],
-            [0.0, sin_x, cos_x],
-        ],
-        dtype=np.float32,
-    )
-    ry = np.array(
-        [
-            [cos_y, 0.0, sin_y],
-            [0.0, 1.0, 0.0],
-            [-sin_y, 0.0, cos_y],
-        ],
-        dtype=np.float32,
-    )
+        rx = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, cos_x, -sin_x],
+                [0.0, sin_x, cos_x],
+            ],
+            dtype=np.float32,
+        )
+        ry = np.array(
+            [
+                [cos_y, 0.0, sin_y],
+                [0.0, 1.0, 0.0],
+                [-sin_y, 0.0, cos_y],
+            ],
+            dtype=np.float32,
+        )
+        matrix = np.matmul(ry, rx)
+    else:
+        matrix = np.identity(3, dtype=np.float32)
 
-    matrix = np.matmul(ry, rx)
+    total_degrees = float(straighten_degrees) + float(int(rotate_steps)) * -90.0
+    if abs(total_degrees) > 1e-5:
+        theta = math.radians(total_degrees)
+        cos_z = math.cos(theta)
+        sin_z = math.sin(theta)
+        rz = np.array(
+            [
+                [cos_z, -sin_z, 0.0],
+                [sin_z, cos_z, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        matrix = np.matmul(rz, matrix)
+
+    if flip_horizontal:
+        flip = np.array(
+            [
+                [-1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        matrix = np.matmul(flip, matrix)
+
     return matrix.astype(np.float32)
 
 

@@ -134,6 +134,7 @@ class EditController(QObject):
         self._edit_viewer_fullscreen_connected = False
         ui.edit_reset_button.clicked.connect(self._handle_reset_clicked)
         ui.edit_done_button.clicked.connect(self._handle_done_clicked)
+        ui.edit_rotate_left_button.clicked.connect(self._handle_rotate_left_clicked)
         ui.edit_adjust_action.triggered.connect(lambda checked: self._handle_mode_change("adjust", checked))
         ui.edit_crop_action.triggered.connect(lambda checked: self._handle_mode_change("crop", checked))
         ui.edit_compare_button.pressed.connect(self._handle_compare_pressed)
@@ -547,6 +548,12 @@ class EditController(QObject):
             "Crop_H": float(height),
         }
         self._session.set_values(updates, emit_individual=False)
+
+    def _handle_rotate_left_clicked(self) -> None:
+        if self._session is None:
+            return
+        current = int(float(self._session.value("Crop_Rotate90")))
+        self._session.set_value("Crop_Rotate90", (current + 1) % 4)
 
     def _apply_session_adjustments_to_viewer(self) -> None:
         """Forward the latest session values to the GL viewer."""
