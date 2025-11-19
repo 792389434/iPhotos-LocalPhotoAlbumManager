@@ -561,7 +561,11 @@ class GLImageViewer(QOpenGLWidget):
         if not self._renderer or not self._renderer.has_texture():
             self._transform_controller.set_image_cover_scale(1.0)
             return
-        tex_w, tex_h = self._renderer.texture_size()
+        # Use the rotation-aware logical dimensions when computing the baseline cover scale so the
+        # rotated frame matches the on-screen aspect ratio. Relying on the raw upload dimensions
+        # would leave the 90°/270° cases scaled against the wrong axis and trigger visible
+        # stretching during rotation transitions.
+        tex_w, tex_h = self._display_texture_dimensions()
         if tex_w <= 0 or tex_h <= 0:
             self._transform_controller.set_image_cover_scale(1.0)
             return
@@ -633,7 +637,11 @@ class GLImageViewer(QOpenGLWidget):
         ):
             return center
 
-        tex_w, tex_h = self._renderer.texture_size()
+        # Use the rotation-aware logical dimensions so the clamp aligns with the visible frame
+        # after 90°/270° rotations. Physical texture sizes ignore the width/height swap and would
+        # produce asymmetric bounds (e.g. allowing black bars on one axis and over-clamping on the
+        # other).
+        tex_w, tex_h = self._display_texture_dimensions()
         vw, vh = self._view_dimensions_device_px()
 
         half_view_w = (float(vw) / float(scale)) * 0.5
