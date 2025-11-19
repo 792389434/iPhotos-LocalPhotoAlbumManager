@@ -388,12 +388,14 @@ class GLRenderer:
             straighten_value = adjustment_value("Crop_Straighten", 0.0)
             rotate_steps = int(float(adjustments.get("Crop_Rotate90", 0.0)))
             flip_enabled = bool(adjustments.get("Crop_FlipH", False))
-            # The perspective rotation must follow the *displayed* orientation rather than the raw
-            # upload size.  Building the matrix from the logical (rotation-aware) dimensions keeps the
-            # Z-rotation and straightening stages in lockstep with the UV normalisation already driven
-            # by ``uTexSize``.  This mirrors the demo behaviour where the frame turns with the image and
-            # prevents the squashed portrait-at-90° output shown in the regression screenshots.
-            aspect_ratio = safe_logical_w / safe_logical_h
+            # Perspective correction must respect the *physical* texture proportions so the
+            # 90° rotation is applied in the real pixel aspect ratio before the logical size
+            # swap used by the interaction layer. Using the uploaded texture dimensions here
+            # avoids the anisotropic stretch seen when the aspect was derived from the
+            # logical (swapped) size at 90° turns.
+            physical_w = float(max(1.0, self._texture_width))
+            physical_h = float(max(1.0, self._texture_height))
+            aspect_ratio = physical_w / physical_h
             perspective_matrix = build_perspective_matrix(
                 adjustment_value("Perspective_Vertical", 0.0),
                 adjustment_value("Perspective_Horizontal", 0.0),
