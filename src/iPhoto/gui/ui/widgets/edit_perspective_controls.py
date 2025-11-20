@@ -226,13 +226,13 @@ class _FlipToggleRow(QWidget):
     def __init__(self, label: str, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(3, 0, 0, 0)
         layout.setSpacing(0)
         self._button = QToolButton(self)
         self._button.setAutoRaise(True)
         self._button.setCheckable(True)
-        self._button.setIcon(load_icon(icon_name))
-        self._button.setIconSize(QSize(28, 28))
+        self._button.setIcon(load_icon(icon_name, color=(180, 180, 180)))
+        self._button.setIconSize(QSize(22, 22))
         self._button.clicked.connect(self._handle_clicked)
         layout.addWidget(self._button)
 
