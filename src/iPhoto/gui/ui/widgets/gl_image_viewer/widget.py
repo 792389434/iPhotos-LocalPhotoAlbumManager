@@ -216,7 +216,7 @@ class GLImageViewer(QOpenGLWidget):
         """Display *pixmap* without changing the tracked image source."""
 
         if pixmap and not pixmap.isNull():
-            self.set_image(pixmap.toImage(), {}, image_source=self._current_image_source)
+            self.set_image(pixmap.toImage(), {}, image_source=self.current_image_source())
         else:
             self.set_image(None, {}, image_source=None)
 
@@ -239,7 +239,7 @@ class GLImageViewer(QOpenGLWidget):
         self.set_image(
             pixmap.toImage(),
             {},
-            image_source=image_source if image_source is not None else self._current_image_source,
+            image_source=image_source if image_source is not None else self.current_image_source(),
             reset_view=reset_view,
         )
 
