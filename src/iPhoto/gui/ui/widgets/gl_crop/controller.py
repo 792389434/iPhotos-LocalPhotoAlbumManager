@@ -155,8 +155,12 @@ class CropInteractionController:
             return None
         crop_state = self._model.get_crop_state()
         rect = crop_state.to_pixel_rect(tex_w, tex_h)
-        top_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["top"])
-        bottom_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["bottom"])
+        top_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["top"]
+        )
+        bottom_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["bottom"]
+        )
         dpr = self._transform_controller._get_dpr()
         return {
             "left": top_left.x() * dpr,
@@ -351,10 +355,18 @@ class CropInteractionController:
 
         crop_state = self._model.get_crop_state()
         rect = crop_state.to_pixel_rect(tex_w, tex_h)
-        top_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["top"])
-        top_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["top"])
-        bottom_right = self._transform_controller.convert_image_to_viewport(rect["right"], rect["bottom"])
-        bottom_left = self._transform_controller.convert_image_to_viewport(rect["left"], rect["bottom"])
+        top_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["top"]
+        )
+        top_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["top"]
+        )
+        bottom_right = self._transform_controller.convert_image_to_viewport(
+            rect["right"], rect["bottom"]
+        )
+        bottom_left = self._transform_controller.convert_image_to_viewport(
+            rect["left"], rect["bottom"]
+        )
 
         return self._hit_tester.test(point, top_left, top_right, bottom_right, bottom_left)
 

@@ -70,4 +70,4 @@ class PanStrategy(InteractionStrategy):
 
     def on_end(self) -> None:
         """Handle end of pan interaction."""
-        pass  # No special cleanup needed
+        # No special cleanup needed

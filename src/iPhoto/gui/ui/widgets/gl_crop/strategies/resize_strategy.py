@@ -4,13 +4,12 @@ Resize strategy for crop box edge/corner dragging.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF
 
 from ..model import CropSessionModel
-from ..utils import CropHandle, ease_in_quad
+from ..utils import CropHandle
 from .abstract import InteractionStrategy
 
 
@@ -148,4 +147,4 @@ class ResizeStrategy(InteractionStrategy):
 
     def on_end(self) -> None:
         """Handle end of resize interaction."""
-        pass  # No special cleanup needed
+        # No special cleanup needed

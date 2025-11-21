@@ -53,13 +53,17 @@ class CropSessionModel:
 
     def restore_snapshot(self, snapshot: tuple[float, float, float, float]) -> None:
         """Restore the crop rectangle from snapshot."""
-        self._crop_state.cx, self._crop_state.cy, self._crop_state.width, self._crop_state.height = snapshot
+        cx, cy, width, height = snapshot
+        self._crop_state.cx = cx
+        self._crop_state.cy = cy
+        self._crop_state.width = width
+        self._crop_state.height = height
         self._crop_state.clamp()
 
     def has_changed(self, snapshot: tuple[float, float, float, float]) -> bool:
         """Return True when the current crop differs from snapshot."""
         current = self.create_snapshot()
-        return any(abs(a - b) > 1e-6 for a, b in zip(snapshot, current))
+        return any(abs(a - b) > 1e-6 for a, b in zip(snapshot, current, strict=True))
 
     def create_baseline(self) -> None:
         """Cache the current crop state as baseline for perspective interactions."""

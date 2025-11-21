@@ -21,9 +21,7 @@ class InteractionStrategy(ABC):
         delta_view:
             Movement delta in viewport coordinates.
         """
-        pass
 
     @abstractmethod
     def on_end(self) -> None:
         """Handle end of interaction (mouse release)."""
-        pass
