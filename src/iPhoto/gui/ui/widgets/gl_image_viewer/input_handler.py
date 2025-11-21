@@ -130,7 +130,7 @@ class InputEventHandler:
         bool
             True if the event was handled (and should be accepted)
         """
-        if event.button() == Qt.LeftButton:
+        if event.button() == _LEFT_BUTTON:
             # Check if we're in fullscreen mode by examining the top-level window
             # This requires access to the widget, which we'll need to pass
             # For now, return False to indicate this needs widget context
