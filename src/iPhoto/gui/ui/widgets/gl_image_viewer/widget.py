@@ -25,21 +25,29 @@ from PySide6.QtOpenGL import (
     QOpenGLFunctions_3_3_Core,
 )
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import QLabel
 
-from .gl_crop_controller import CropInteractionController
-from .gl_renderer import GLRenderer
-from .view_transform_controller import (
+from ..gl_crop_controller import CropInteractionController
+from ..gl_renderer import GLRenderer
+from ..view_transform_controller import (
     ViewTransformController,
     compute_fit_to_view_scale,
     compute_rotation_cover_scale,
 )
 
+from . import crop_logic
+from . import geometry
+from .components import LoadingOverlay
+from .input_handler import InputEventHandler
+from .offscreen import OffscreenRenderer
+from .resources import TextureResourceManager
+from .utils import normalise_colour
+from .view_helpers import clamp_center_to_texture_bounds
+
 _LOGGER = logging.getLogger(__name__)
 
 # 如果你的工程没有这个函数，可以改成固定背景色
 try:
-    from ..palette import viewer_surface_color  # type: ignore
+    from ...palette import viewer_surface_color  # type: ignore
 except Exception:
     def viewer_surface_color(_):  # fallback
         return QColor(0, 0, 0)
@@ -73,14 +81,20 @@ class GLImageViewer(QOpenGLWidget):
         # 状态
         self._image: QImage | None = None
         self._adjustments: dict[str, float] = {}
-        self._current_image_source: object | None = None
-        self._live_replay_enabled: bool = False
+        
+        # Texture resource manager
+        self._texture_manager = TextureResourceManager(
+            renderer_provider=lambda: self._renderer,
+            context_provider=lambda: self.context(),
+            make_current=self.makeCurrent,
+            done_current=self.doneCurrent,
+        )
 
         # Track the viewer surface colour so immersive mode can temporarily
         # switch to a pure black canvas.  ``viewer_surface_color`` returns a
         # palette-derived colour string, which we normalise to ``QColor`` for
         # reliable comparisons and GL clear colour conversion.
-        self._default_surface_color = self._normalise_colour(viewer_surface_color(self))
+        self._default_surface_color = normalise_colour(viewer_surface_color(self))
         self._surface_override: QColor | None = None
         self._backdrop_color: QColor = QColor(self._default_surface_color)
         self._apply_surface_color()
@@ -90,16 +104,8 @@ class GLImageViewer(QOpenGLWidget):
         # sessions.
         self._time_base = time.monotonic()
 
-        self._loading_overlay = QLabel("Loading…", self)
-        self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_overlay.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
-            True,
-        )
-        self._loading_overlay.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 128); color: white; font-size: 18px;"
-        )
-        self._loading_overlay.hide()
+        # Loading overlay component
+        self._loading_overlay = LoadingOverlay(self)
         self._transform_controller = ViewTransformController(
             self,
             texture_size_provider=self._display_texture_dimensions,
@@ -113,7 +119,7 @@ class GLImageViewer(QOpenGLWidget):
         # Crop interaction controller
         self._crop_controller = CropInteractionController(
             texture_size_provider=self._display_texture_dimensions,
-            clamp_image_center_to_crop=self._clamp_image_center_to_crop,
+            clamp_image_center_to_crop=self._create_clamp_function(),
             transform_controller=self._transform_controller,
             on_crop_changed=self._handle_crop_interaction_changed,
             on_cursor_change=self._handle_cursor_change,
@@ -122,6 +128,16 @@ class GLImageViewer(QOpenGLWidget):
         )
         self._auto_crop_view_locked: bool = False
         self._update_crop_perspective_state()
+        
+        # Input event handler
+        self._input_handler = InputEventHandler(
+            crop_controller=self._crop_controller,
+            transform_controller=self._transform_controller,
+            on_replay_requested=self.replayRequested.emit,
+            on_fullscreen_exit=self.fullscreenExitRequested.emit,
+            on_fullscreen_toggle=self.fullscreenToggleRequested.emit,
+            on_cancel_auto_crop_lock=self._cancel_auto_crop_lock,
+        )
 
     # --------------------------- Public API ---------------------------
 
@@ -161,20 +177,17 @@ class GLImageViewer(QOpenGLWidget):
             mode can reuse the detail view framing without a visible jump.
         """
 
-        reuse_existing_texture = (
-            image_source is not None and image_source == getattr(self, "_current_image_source", None)
-        )
+        # Check if we can reuse the existing texture
+        if self._texture_manager.should_reuse_texture(image_source):
+            if image is not None and not image.isNull():
+                # Skip texture re-upload, only update adjustments
+                self.set_adjustments(adjustments)
+                if reset_view:
+                    self.reset_zoom()
+                return
 
-        if reuse_existing_texture and image is not None and not image.isNull():
-            # Skip the heavy texture re-upload when the caller explicitly
-            # reports that the source asset is unchanged.  Only the adjustment
-            # uniforms need to be refreshed in this scenario.
-            self.set_adjustments(adjustments)
-            if reset_view:
-                self.reset_zoom()
-            return
-
-        self._current_image_source = image_source
+        # Update texture resource tracking
+        self._texture_manager.set_image(image, image_source)
         self._image = image
         self._adjustments = dict(adjustments or {})
         self._update_crop_perspective_state()
@@ -182,22 +195,10 @@ class GLImageViewer(QOpenGLWidget):
         self._time_base = time.monotonic()
 
         if image is None or image.isNull():
-            self._current_image_source = None
+            # Clear resources and reset state
+            self._texture_manager.clear_image()
             self._auto_crop_view_locked = False
             self._transform_controller.set_image_cover_scale(1.0)
-            renderer = self._renderer
-            if renderer is not None:
-                gl_context = self.context()
-                if gl_context is not None:
-                    # ``set_image(None)`` is frequently triggered while the widget is
-                    # still hidden, meaning the GL context (and therefore the
-                    # renderer) may not have been created yet.  Guard the cleanup so
-                    # we only touch GPU state when a live context is bound.
-                    self.makeCurrent()
-                    try:
-                        renderer.delete_texture()
-                    finally:
-                        self.doneCurrent()
 
         if reset_view:
             # Reset the interactive transform so every new asset begins in the
@@ -205,11 +206,11 @@ class GLImageViewer(QOpenGLWidget):
             # exposes.  ``reset_view`` lets callers preserve the zoom when the
             # user toggles between detail and edit modes.
             self.reset_zoom()
-    def set_placeholder(self, pixmap) -> None:
+    def set_placeholder(self, pixmap: QPixmap | None) -> None:
         """Display *pixmap* without changing the tracked image source."""
 
         if pixmap and not pixmap.isNull():
-            self.set_image(pixmap.toImage(), {}, image_source=self._current_image_source)
+            self.set_image(pixmap.toImage(), {}, image_source=self.current_image_source())
         else:
             self.set_image(None, {}, image_source=None)
 
@@ -232,7 +233,7 @@ class GLImageViewer(QOpenGLWidget):
         self.set_image(
             pixmap.toImage(),
             {},
-            image_source=image_source if image_source is not None else self._current_image_source,
+            image_source=image_source if image_source is not None else self.current_image_source(),
             reset_view=reset_view,
         )
 
@@ -250,7 +251,7 @@ class GLImageViewer(QOpenGLWidget):
         if self._crop_controller.is_active():
             # Refresh the crop overlay in logical space so it stays aligned when rotation
             # or perspective adjustments change while the interaction mode is active.
-            logical_values = self._logical_crop_mapping_from_texture(mapped_adjustments)
+            logical_values = geometry.logical_crop_mapping_from_texture(mapped_adjustments)
             self._crop_controller.set_active(True, logical_values)
         if self._auto_crop_view_locked and not self._crop_controller.is_active():
             self._reapply_locked_crop_view()
@@ -259,7 +260,7 @@ class GLImageViewer(QOpenGLWidget):
     def current_image_source(self) -> object | None:
         """Return the identifier describing the currently displayed image."""
 
-        return getattr(self, "_current_image_source", None)
+        return self._texture_manager.get_current_image_source()
 
     def pixmap(self) -> QPixmap | None:
         """Return a defensive copy of the currently displayed frame."""
@@ -272,9 +273,8 @@ class GLImageViewer(QOpenGLWidget):
         """Toggle the translucent loading overlay."""
 
         if loading:
-            self._loading_overlay.setVisible(True)
-            self._loading_overlay.raise_()
-            self._loading_overlay.resize(self.size())
+            self._loading_overlay.show()
+            self._loading_overlay.update_geometry(self.size())
         else:
             self._loading_overlay.hide()
 
@@ -284,7 +284,7 @@ class GLImageViewer(QOpenGLWidget):
         return self
 
     def set_live_replay_enabled(self, enabled: bool) -> None:
-        self._live_replay_enabled = bool(enabled)
+        self._input_handler.set_live_replay_enabled(enabled)
 
     def set_wheel_action(self, action: str) -> None:
         self._transform_controller.set_wheel_action(action)
@@ -295,7 +295,7 @@ class GLImageViewer(QOpenGLWidget):
         if colour is None:
             self._surface_override = None
         else:
-            self._surface_override = self._normalise_colour(colour)
+            self._surface_override = normalise_colour(colour)
         self._apply_surface_color()
 
     def set_immersive_background(self, immersive: bool) -> None:
@@ -311,7 +311,7 @@ class GLImageViewer(QOpenGLWidget):
         to the swapped logical dimensions after the aspect ratio flips.
         """
 
-        rotated_steps = (self._current_rotate_steps() - 1) % 4
+        rotated_steps = (geometry.get_rotate_steps(self._adjustments) - 1) % 4
 
         # Remap perspective sliders into the rotated coordinate frame so that the visual
         # effect stays consistent with what the user saw pre-rotation.  Perspective
@@ -398,34 +398,16 @@ class GLImageViewer(QOpenGLWidget):
         The width and height of the rendered image are clamped to at least one pixel
         to avoid driver errors. The returned image is always in Format_ARGB32 format.
         """
-        if target_size.isEmpty():
-            _LOGGER.warning("render_offscreen_image: target size was empty")
-            return QImage()
-
-        if self.context() is None:
-            _LOGGER.warning("render_offscreen_image: no OpenGL context available")
-            return QImage()
-
-        if self._image is None or self._image.isNull():
-            _LOGGER.warning("render_offscreen_image: no source image bound to the viewer")
-            return QImage()
-
-        if self._renderer is None:
-            _LOGGER.warning("render_offscreen_image: renderer not initialized")
-            return QImage()
-
-        self.makeCurrent()
-        try:
-            return self._renderer.render_offscreen_image(
-                self._image,
-                adjustments or self._adjustments,
-                target_size,
-                time_base=self._time_base,
-            )
-        finally:
-            self.doneCurrent()
-
-        return QImage()
+        return OffscreenRenderer.render(
+            renderer=self._renderer,
+            context=self.context(),
+            make_current=self.makeCurrent,
+            done_current=self.doneCurrent,
+            image=self._image,
+            adjustments=adjustments or self._adjustments,
+            target_size=target_size,
+            time_base=self._time_base,
+        )
 
     # --------------------------- GL lifecycle ---------------------------
 
@@ -470,7 +452,11 @@ class GLImageViewer(QOpenGLWidget):
         gf.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1.0)
         gf.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-        if self._image is not None and not self._image.isNull() and not self._renderer.has_texture():
+        if (
+            self._image is not None
+            and not self._image.isNull()
+            and not self._renderer.has_texture()
+        ):
             self._renderer.upload_texture(self._image)
             straighten, rotate_steps, _ = self._rotation_parameters()
             self._update_cover_scale(straighten, rotate_steps)
@@ -530,7 +516,8 @@ class GLImageViewer(QOpenGLWidget):
 
     def setCropMode(self, enabled: bool, values: Mapping[str, float] | None = None) -> None:
         was_active = self._crop_controller.is_active()
-        logical_values = self._logical_crop_mapping_from_texture(values)
+        source_values = values if values is not None else self._adjustments
+        logical_values = geometry.logical_crop_mapping_from_texture(source_values)
         self._crop_controller.set_active(enabled, logical_values)
         if enabled and not was_active:
             self._cancel_auto_crop_lock()
@@ -601,7 +588,9 @@ class GLImageViewer(QOpenGLWidget):
         display_w, display_h = self._display_texture_dimensions()
         view_width, view_height = self._view_dimensions_device_px()
         
-        base_scale = compute_fit_to_view_scale((display_w, display_h), float(view_width), float(view_height))
+        base_scale = compute_fit_to_view_scale(
+            (display_w, display_h), float(view_width), float(view_height)
+        )
         
         # For straighten, use logical dims with physical bounds checking
         cover_scale = compute_rotation_cover_scale(
@@ -656,107 +645,44 @@ class GLImageViewer(QOpenGLWidget):
             return QPointF()
         return self._transform_controller.convert_viewport_to_image(point)
 
-    def _clamp_image_center_to_crop(self, center: QPointF, scale: float) -> QPointF:
-        """Return *center* limited so the viewport never exposes empty pixels.
-
-        The demo reference keeps the camera free to roam while the crop-specific
-        model transform guarantees that the crop rectangle only samples valid
-        pixels.  To mirror that behaviour we clamp the *viewport* centre purely
-        against the texture bounds.  As soon as the viewport half extents exceed
-        the texture half extents we collapse the permissible interval to the
-        image midpoint, matching the demo's behaviour once the frame is larger
-        than the source.
-        """
-
-        if (
-            not self._renderer
-            or not self._renderer.has_texture()
-            or scale <= 1e-9
-        ):
-            return center
-
-        # Use the rotation-aware logical dimensions so the clamp aligns with the visible frame
-        # after 90°/270° rotations. Physical texture sizes ignore the width/height swap and would
-        # produce asymmetric bounds (e.g. allowing black bars on one axis and over-clamping on the
-        # other).
-        tex_w, tex_h = self._display_texture_dimensions()
-        vw, vh = self._view_dimensions_device_px()
-
-        half_view_w = (float(vw) / float(scale)) * 0.5
-        half_view_h = (float(vh) / float(scale)) * 0.5
-
-        tex_half_w = float(tex_w) * 0.5
-        tex_half_h = float(tex_h) * 0.5
-
-        min_center_x = half_view_w
-        max_center_x = float(tex_w) - half_view_w
-
-        if min_center_x > max_center_x:
-            min_center_x = tex_half_w
-            max_center_x = tex_half_w
-
-        min_center_y = half_view_h
-        max_center_y = float(tex_h) - half_view_h
-
-        if min_center_y > max_center_y:
-            min_center_y = tex_half_h
-            max_center_y = tex_half_h
-
-        clamped_x = max(min_center_x, min(max_center_x, float(center.x())))
-        clamped_y = max(min_center_y, min(max_center_y, float(center.y())))
-
-        clamped_x = max(0.0, min(float(tex_w), clamped_x))
-        clamped_y = max(0.0, min(float(tex_h), clamped_y))
-        return QPointF(clamped_x, clamped_y)
+    def _create_clamp_function(self):
+        """Create a clamp function with access to viewer state."""
+        def clamp_fn(center: QPointF, scale: float) -> QPointF:
+            return clamp_center_to_texture_bounds(
+                center=center,
+                scale=scale,
+                texture_dimensions=self._display_texture_dimensions(),
+                view_dimensions=self._view_dimensions_device_px(),
+                has_texture=bool(self._renderer and self._renderer.has_texture()),
+            )
+        return clamp_fn
 
     # --------------------------- Viewport helpers ---------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if self._crop_controller.is_active() and event.button() == Qt.LeftButton:
-            self._crop_controller.handle_mouse_press(event)
-            return
-        if event.button() == Qt.LeftButton:
-            if self._live_replay_enabled:
-                self.replayRequested.emit()
-            else:
-                self._cancel_auto_crop_lock()
-                self._transform_controller.handle_mouse_press(event)
-        super().mousePressEvent(event)
+        handled = self._input_handler.handle_mouse_press(event)
+        if not handled:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if self._crop_controller.is_active():
-            self._crop_controller.handle_mouse_move(event)
-            return
-        if not self._live_replay_enabled:
-            self._transform_controller.handle_mouse_move(event)
-        super().mouseMoveEvent(event)
+        handled = self._input_handler.handle_mouse_move(event)
+        if not handled:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if self._crop_controller.is_active() and event.button() == Qt.LeftButton:
-            self._crop_controller.handle_mouse_release(event)
-            return
-        if not self._live_replay_enabled:
-            self._transform_controller.handle_mouse_release(event)
-        super().mouseReleaseEvent(event)
+        handled = self._input_handler.handle_mouse_release(event)
+        if not handled:
+            super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.LeftButton:
-            top_level = self.window()
-            # Toggle immersive mode depending on the top-level window state.
-            if top_level is not None and top_level.isFullScreen():
-                self.fullscreenExitRequested.emit()
-            else:
-                self.fullscreenToggleRequested.emit()
+        handled = self._input_handler.handle_double_click_with_window(event, self.window())
+        if handled:
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        if self._crop_controller.is_active():
-            self._crop_controller.handle_wheel(event)
-            return
-        self._cancel_auto_crop_lock()
-        self._transform_controller.handle_wheel(event)
+        self._input_handler.handle_wheel(event)
 
     def resizeGL(self, w: int, h: int) -> None:
         gf = self._gl_funcs
@@ -767,8 +693,7 @@ class GLImageViewer(QOpenGLWidget):
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
-        if self._loading_overlay is not None:
-            self._loading_overlay.resize(self.size())
+        self._loading_overlay.update_geometry(self.size())
         if self._auto_crop_view_locked and not self._crop_controller.is_active():
             self._reapply_locked_crop_view()
         straighten, rotate_steps, _ = self._rotation_parameters()
@@ -846,206 +771,32 @@ class GLImageViewer(QOpenGLWidget):
 
         texture_size = self._display_texture_dimensions()
         tex_w, tex_h = texture_size
-        if tex_w <= 0 or tex_h <= 0:
-            return None
 
         # Convert the session's texture-space crop tuple into the logical/display space so the
         # overlay and auto-framing routines mirror the visual orientation on screen.  The
         # conversion swaps axes when the photo is rotated by 90°/270° while keeping the stored
         # crop coordinates anchored to the unrotated texture, matching the "data stays still,
         # view moves" policy from the demo reference.
-        crop_cx, crop_cy, crop_w, crop_h = self._logical_crop_from_texture()
-        if not self._has_valid_crop(crop_w, crop_h):
-            return None
-
-        tex_w_f = float(tex_w)
-        tex_h_f = float(tex_h)
-        width_px = max(1.0, min(tex_w_f, crop_w * tex_w_f))
-        height_px = max(1.0, min(tex_h_f, crop_h * tex_h_f))
-
-        center_x = max(0.0, min(tex_w_f, crop_cx * tex_w_f))
-        center_y = max(0.0, min(tex_h_f, crop_cy * tex_h_f))
-
-        half_w = width_px * 0.5
-        half_h = height_px * 0.5
-
-        left = max(0.0, center_x - half_w)
-        top = max(0.0, center_y - half_h)
-        right = min(tex_w_f, center_x + half_w)
-        bottom = min(tex_h_f, center_y + half_h)
-
-        rect_width = max(1.0, right - left)
-        rect_height = max(1.0, bottom - top)
-        epsilon = 1e-6
-        if rect_width >= tex_w_f - epsilon and rect_height >= tex_h_f - epsilon:
-            return None
-        return QRectF(left, top, rect_width, rect_height)
-
-    @staticmethod
-    def _has_valid_crop(crop_w: float, crop_h: float) -> bool:
-        """Return ``True`` when the adjustments describe a cropped image."""
-
-        epsilon = 1e-3
-        return (crop_w < 1.0 - epsilon or crop_h < 1.0 - epsilon) and crop_w > 0.0 and crop_h > 0.0
+        crop_cx, crop_cy, crop_w, crop_h = geometry.logical_crop_from_texture(self._adjustments)
+        return crop_logic.compute_crop_rect_pixels(crop_cx, crop_cy, crop_w, crop_h, tex_w, tex_h)
 
     def _handle_crop_interaction_changed(
         self, cx: float, cy: float, width: float, height: float
     ) -> None:
         """Convert logical crop updates back to texture space before emitting."""
 
-        tex_cx, tex_cy, tex_w, tex_h = self._logical_crop_to_texture(
+        rotate_steps = geometry.get_rotate_steps(self._adjustments)
+        tex_cx, tex_cy, tex_w, tex_h = geometry.logical_crop_to_texture(
             (float(cx), float(cy), float(width), float(height)),
-            self._current_rotate_steps(),
+            rotate_steps,
         )
         self.cropChanged.emit(tex_cx, tex_cy, tex_w, tex_h)
-
-    def _current_rotate_steps(self, values: Mapping[str, float] | None = None) -> int:
-        """Return the normalised quarter-turn rotation counter."""
-
-        source = values or self._adjustments
-        return int(float(source.get("Crop_Rotate90", 0.0))) % 4
-
-    @staticmethod
-    def _clamp_unit(value: float) -> float:
-        """Clamp *value* into the ``[0, 1]`` interval."""
-
-        return max(0.0, min(1.0, float(value)))
-
-    def _normalised_crop_from_mapping(
-        self, values: Mapping[str, float] | None = None
-    ) -> tuple[float, float, float, float]:
-        """Extract a normalised crop tuple from the provided mapping."""
-
-        source = values or self._adjustments
-        cx = self._clamp_unit(source.get("Crop_CX", 0.5))
-        cy = self._clamp_unit(source.get("Crop_CY", 0.5))
-        width = self._clamp_unit(source.get("Crop_W", 1.0))
-        height = self._clamp_unit(source.get("Crop_H", 1.0))
-        return (cx, cy, width, height)
-
-    def _logical_crop_from_texture(
-        self, values: Mapping[str, float] | None = None
-    ) -> tuple[float, float, float, float]:
-        """Convert texture-space crop values into the rotation-aware logical space."""
-
-        cx, cy, width, height = self._normalised_crop_from_mapping(values)
-        return self._texture_crop_to_logical(
-            (cx, cy, width, height),
-            self._current_rotate_steps(values),
-        )
-
-    def _logical_crop_mapping_from_texture(
-        self, values: Mapping[str, float] | None = None
-    ) -> dict[str, float]:
-        """Return a mapping of logical crop values derived from texture space."""
-
-        logical_cx, logical_cy, logical_w, logical_h = self._logical_crop_from_texture(values)
-        return {
-            "Crop_CX": logical_cx,
-            "Crop_CY": logical_cy,
-            "Crop_W": logical_w,
-            "Crop_H": logical_h,
-        }
-
-    def _texture_crop_to_logical(
-        self, crop: tuple[float, float, float, float], rotate_steps: int
-    ) -> tuple[float, float, float, float]:
-        """Map texture-space crop values into logical space for UI rendering.
-
-        Texture coordinates remain the canonical storage format (``Crop_*`` in the session),
-        while logical coordinates mirror whatever orientation is currently visible to the user.
-        The mapping therefore rotates the centre and swaps the width/height whenever the image is
-        turned by 90° increments so that overlays and zoom-to-crop computations operate in the same
-        frame as the on-screen preview.
-        """
-
-        tcx, tcy, tw, th = crop
-        if rotate_steps == 0:
-            return (tcx, tcy, tw, th)
-        if rotate_steps == 1:
-            # Step 1: 90° CW (270° CCW) - texture TOP becomes visual RIGHT
-            # Transformation: (x', y') = (1-y, x)
-            return (
-                self._clamp_unit(1.0 - tcy),
-                self._clamp_unit(tcx),
-                self._clamp_unit(th),
-                self._clamp_unit(tw),
-            )
-        if rotate_steps == 2:
-            return (
-                self._clamp_unit(1.0 - tcx),
-                self._clamp_unit(1.0 - tcy),
-                self._clamp_unit(tw),
-                self._clamp_unit(th),
-            )
-        # Step 3: 90° CCW (270° CW) - texture TOP becomes visual LEFT  
-        # Transformation: (x', y') = (y, 1-x)
-        return (
-            self._clamp_unit(tcy),
-            self._clamp_unit(1.0 - tcx),
-            self._clamp_unit(th),
-            self._clamp_unit(tw),
-        )
-
-    def _logical_crop_to_texture(
-        self, crop: tuple[float, float, float, float], rotate_steps: int
-    ) -> tuple[float, float, float, float]:
-        """Convert logical crop values back into the invariant texture-space frame.
-
-        This is the inverse of :meth:`_texture_crop_to_logical`.  Interaction handlers edit crops in
-        logical space (matching the rotated display), so we rotate the updated rectangle back into
-        the texture frame before persisting it.  Keeping the stored data immutable with respect to
-        rotation prevents accumulation of floating-point error across repeated 90° turns and keeps
-        the controller logic aligned with the shader's texture-space crop uniforms.
-        """
-
-        lcx, lcy, lw, lh = crop
-        if rotate_steps == 0:
-            return (
-                self._clamp_unit(lcx),
-                self._clamp_unit(lcy),
-                self._clamp_unit(lw),
-                self._clamp_unit(lh),
-            )
-        if rotate_steps == 1:
-            # Step 1 inverse: (x, y) = (y', 1-x') 
-            # (reverse of the forward 90° CW transformation)
-            return (
-                self._clamp_unit(lcy),
-                self._clamp_unit(1.0 - lcx),
-                self._clamp_unit(lh),
-                self._clamp_unit(lw),
-            )
-        if rotate_steps == 2:
-            return (
-                self._clamp_unit(1.0 - lcx),
-                self._clamp_unit(1.0 - lcy),
-                self._clamp_unit(lw),
-                self._clamp_unit(lh),
-            )
-        # Step 3 inverse: (x, y) = (1-y', x')
-        # (reverse of the forward 90° CCW transformation)
-        return (
-            self._clamp_unit(1.0 - lcy),
-            self._clamp_unit(lcx),
-            self._clamp_unit(lh),
-            self._clamp_unit(lw),
-        )
 
     def _fit_to_view_scale(self, view_width: float, view_height: float) -> float:
         """Return the baseline scale that fits the texture within the viewport."""
 
         texture_size = self._display_texture_dimensions()
         return compute_fit_to_view_scale(texture_size, view_width, view_height)
-
-    @staticmethod
-    def _normalise_colour(value: QColor | str) -> QColor:
-        """Return a valid ``QColor`` derived from *value* (defaulting to black)."""
-
-        colour = QColor(value)
-        if not colour.isValid():
-            colour = QColor("#000000")
-        return colour
 
     def _apply_surface_color(self) -> None:
         """Synchronise the widget stylesheet and GL clear colour backdrop."""
