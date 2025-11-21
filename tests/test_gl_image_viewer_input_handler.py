@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
-import pytest
 
 # Direct module import to avoid Qt dependencies in test environment
 input_handler_path = (
