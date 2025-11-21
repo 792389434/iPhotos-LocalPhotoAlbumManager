@@ -13,20 +13,8 @@ from pathlib import Path
 
 import pytest
 
-# Direct module import to avoid unnecessary Qt dependencies in test environment
-crop_logic_path = (
-    Path(__file__).parent.parent
-    / "src"
-    / "iPhoto"
-    / "gui"
-    / "ui"
-    / "widgets"
-    / "gl_image_viewer"
-)
-sys.path.insert(0, str(crop_logic_path))
-
-import crop_logic  # noqa: E402
-
+# Import crop_logic using package structure. If Qt dependencies are problematic, mock them in test setup.
+from src.iPhoto.gui.ui.widgets.gl_image_viewer import crop_logic
 has_valid_crop = crop_logic.has_valid_crop
 compute_crop_rect_pixels = crop_logic.compute_crop_rect_pixels
 
