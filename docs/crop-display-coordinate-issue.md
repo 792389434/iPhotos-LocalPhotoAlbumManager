@@ -361,10 +361,15 @@ Crop_Rotate90 = 1
 ```python
 # 应用 texture_crop_to_logical() 转换
 # rotate_steps = 1: (x', y') = (1-y, x)
-logical_cx = 1.0 - 0.5 = 0.5
-logical_cy = 0.5
-logical_w = 0.6  # 宽高互换
-logical_h = 0.8
+# 变量映射关系 (Variable mapping):
+#   logical_cx = 1.0 - Crop_CY = 1.0 - 0.5 = 0.5
+#   logical_cy = Crop_CX = 0.5
+#   logical_w  = Crop_H = 0.6   # 宽高互换 (width/height swapped)
+#   logical_h  = Crop_W = 0.8
+logical_cx = 1.0 - Crop_CY  # 0.5
+logical_cy = Crop_CX        # 0.5
+logical_w  = Crop_H         # 0.6
+logical_h  = Crop_W         # 0.8
 ```
 
 **如果不转换**：
