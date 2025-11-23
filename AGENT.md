@@ -221,13 +221,12 @@ fmt.setProfile(QSurfaceFormat.CoreProfile)
 * **Shader 中处理 Flip（统一）**
 
 ```glsl
-// src/iPhoto/gui/ui/widgets/gl_image_viewer.frag (第 197 行)
+// gl_image_viewer.frag (第 197 行)
 uv.y = 1.0 - uv.y;
 ```
 
 这样可确保 GPU 显示的方向与 UI 逻辑坐标一致，不会因为 Qt / OpenGL 的 Y 轴差异引起“倒置 / 上下颠倒 / 拖动反向”等问题。
 
-**实现位置**: `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag` 第 197 行
 
 ---
 
@@ -265,7 +264,7 @@ uv.y = 1.0 - uv.y;
 * **关键作用**: **黑边检测的核心空间**
   * 透视变换（perspective/straighten）应用后形成的有效区域四边形
   * 裁剪框必须完全包含在此四边形内才不会出现黑边
-  * **重要**: 四边形计算时 `rotate_steps=0`（`model.py` 第 149 行）
+  * **重要**: 四边形计算时 `rotate_steps=0`（`src/iPhoto/gui/ui/widgets/gl_crop/model.py` 第 149 行）
 * **实现逻辑**: 
   ```python
   # model.py 第 142-149 行
