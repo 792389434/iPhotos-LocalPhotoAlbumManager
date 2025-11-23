@@ -221,11 +221,13 @@ fmt.setProfile(QSurfaceFormat.CoreProfile)
 * **Shader 中处理 Flip（统一）**
 
 ```glsl
-// gl_image_viewer.frag
+// src/iPhoto/gui/ui/widgets/gl_image_viewer.frag (第 197 行)
 uv.y = 1.0 - uv.y;
 ```
 
 这样可确保 GPU 显示的方向与 UI 逻辑坐标一致，不会因为 Qt / OpenGL 的 Y 轴差异引起“倒置 / 上下颠倒 / 拖动反向”等问题。
+
+**实现位置**: `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag` 第 197 行
 
 ---
 
@@ -236,58 +238,168 @@ uv.y = 1.0 - uv.y;
 
 为消除歧义，必须明确以下三套坐标系及其在计算中的作用：
 
-#### A. 原始纹理坐标系 (Texture Space)
+#### A. 纹理坐标系 (Texture Space) — **持久化存储空间**
 
-* **定义**: 图片文件的原始像素空间。
-* **范围**: `[0, 0]` 到 `[W_src, H_src]`，其中 `W_src` 和 `H_src` 为源图像的宽度和高度（像素单位）。
-* **作用**: 透视变换的输入源。
-* **示例**: 一张 1920×1080 的图片，纹理坐标从左上角 `(0, 0)` 到右下角 `(1920, 1080)`。
+* **定义**: 图片文件的原始像素空间，是不变的坐标系统。
+* **范围**: 归一化坐标 `[0, 1]`，覆盖整个源图像。
+* **作用**: 
+  * 数据持久化：所有裁剪参数（`Crop_CX`, `Crop_CY`, `Crop_W`, `Crop_H`）存储在 `.ipo` 文件中都使用纹理坐标
+  * GPU 纹理采样：Shader 最终从纹理坐标采样像素
+  * 不受旋转影响：即使用户旋转图片，存储的纹理坐标保持不变
+* **示例**: 一张原始图片的中心裁剪框在纹理空间始终为 `(0.5, 0.5, 0.8, 0.8)`，无论视觉上如何旋转。
 
-#### B. 投影空间坐标系 (Projected/Distorted Space) — **核心计算空间**
+#### B. 逻辑坐标系 (Logical Space) — **用户交互空间**
 
-* **定义**: 应用了透视变换矩阵（Perspective Matrix）后的二维空间。
-* **形态**: 原始图片的矩形边界在此空间中变为一个任意凸四边形 (Convex Quadrilateral)，记为 `Q_valid`。
-* **裁剪框状态**: 用户的裁剪框在此空间中**始终保持为轴对齐矩形** (Axis-Aligned Bounding Box, AABB)，记为 `R_crop`。
-* **判定标准**: 防黑边的核心判定**必须**在此空间进行。即判断矩形 `R_crop` 是否完全包含于四边形 `Q_valid` 内部。
-* **坐标范围**: 通常归一化为 `[0, 1]` 区间（两个维度）。
-* **为何是核心**: 所有几何包含性检查（`rect_inside_quad`, `point_in_convex_polygon`）都必须在此空间执行，以确保最终裁剪结果不会包含黑色边缘。
+* **定义**: 应用了旋转后用户在屏幕上看到的坐标系统。
+* **形态**: Python 层所有裁剪交互都在此空间进行。
+* **作用**:
+  * UI 交互：用户拖拽、调整裁剪框的所有操作都在逻辑空间
+  * 透视变换：透视扭曲（`vertical`、`horizontal`、`straighten`）在逻辑空间应用
+  * 黑边检测：裁剪框与有效四边形的包含性检查在逻辑空间进行
+* **坐标范围**: 归一化为 `[0, 1]` 区间。
+* **与纹理空间的关系**: 通过 `texture_crop_to_logical()` 和 `logical_crop_to_texture()` 转换。
 
-#### C. 视口/屏幕坐标系 (Viewport Space)
+#### C. 投影空间坐标系 (Projected Space) — **黑边判定空间**
+
+* **定义**: 应用透视变换（但不包括旋转）后的空间。
+* **形态**: 原始矩形边界变为凸四边形 `Q_valid`。
+* **关键作用**: **黑边检测的核心空间**
+  * 透视变换（perspective/straighten）应用后形成的有效区域四边形
+  * 裁剪框必须完全包含在此四边形内才不会出现黑边
+  * **重要**: 四边形计算时 `rotate_steps=0`（`model.py` 第 147 行）
+* **实现逻辑**: 
+  ```python
+  # model.py 第 143-147 行
+  matrix = build_perspective_matrix(
+      vertical, horizontal,
+      image_aspect_ratio=aspect_ratio,
+      straighten_degrees=straighten,
+      rotate_steps=0,  # 黑边检测时忽略旋转
+      flip_horizontal=flip,
+  )
+  ```
+
+#### D. 视口/屏幕坐标系 (Viewport Space)
 
 * **定义**: 最终渲染在屏幕组件上的像素坐标。
 * **作用**: **仅用于**处理鼠标点击、拖拽等交互事件。
-* **变换要求**: 在进行逻辑计算前，**必须**将屏幕坐标逆变换回 **B (投影空间)**。
-* **示例**: 用户在屏幕上点击 `(500, 300)` 像素位置，需要转换为归一化的投影空间坐标，才能判断点击了哪个裁剪控制柄。
+* **变换要求**: 在进行逻辑计算前，**必须**将屏幕坐标逆变换回逻辑空间。
+
+---
+
+#### Shader 层坐标变换流程 (Fragment Shader Pipeline)
+
+**新架构**: 所有坐标变换已迁移到 Fragment Shader 中，Python 层只负责逻辑空间的交互。
+
+```glsl
+// src/iPhoto/gui/ui/widgets/gl_image_viewer.frag
+
+// 1. Y 轴翻转（第 197 行）
+uv.y = 1.0 - uv.y;
+vec2 uv_corrected = uv;
+
+// 2. 应用透视逆变换（第 201 行）
+vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
+
+// 3. 透视边界检查（第 204-207 行）
+if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
+    uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+    discard;  // 透视变换后超出范围
+}
+
+// 4. 裁剪测试（第 210-221 行）
+// **关键**: 裁剪测试在旋转之前进行，使用纹理空间坐标
+if (uv_perspective.x < crop_min_x || uv_perspective.x > crop_max_x ||
+    uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
+    discard;  // 裁剪框外
+}
+
+// 5. 应用旋转（第 224 行）
+vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
+
+// 6. 纹理采样（第 227 行）
+vec4 texel = texture(uTex, uv_tex);
+```
+
+**关键设计决策**:
+* **裁剪测试在旋转前**: 确保裁剪参数始终在纹理空间（第 210-221 行）
+* **黑边检测优化**: Shader 接收的裁剪参数已经在 Python 层验证过不会产生黑边
+* **Python 层简化**: Python 只需在逻辑空间操作，Shader 负责所有变换
+
+---
+
+#### 黑边检测机制 (Black Border Prevention)
+
+**核心原则**: 黑边判定在**投影空间**（透视变换后，旋转前）进行。
+
+1. **步骤0策略** (`model.py` 第 147 行):
+   * 计算有效四边形时强制 `rotate_steps=0`
+   * 原因: 旋转是纯粹的坐标重映射，不影响有效像素区域
+   * 结果: 四边形 `Q_valid` 代表真实的有效像素边界
+
+2. **包含性检查** (`perspective_math.py`):
+   ```python
+   def rect_inside_quad(rect: NormalisedRect, quad: Sequence[tuple[float, float]]) -> bool:
+       """检查裁剪框的四个角点是否都在四边形内"""
+       corners = [
+           (rect.left, rect.top),
+           (rect.right, rect.top),
+           (rect.right, rect.bottom),
+           (rect.left, rect.bottom),
+       ]
+       return all(point_in_convex_polygon(corner, quad) for corner in corners)
+   ```
+
+3. **自动缩放** (`model.py` 第 185-200 行):
+   * 当裁剪框超出有效区域时，自动均匀缩小
+   * 使用 `calculate_min_zoom_to_fit()` 计算最小缩放比例
+   * 确保裁剪结果完全在有效像素内
+
+**示例场景**:
+* 用户应用强透视变换 → 有效区域变成梯形
+* 用户拖拽裁剪框 → Python 检查四个角点是否在梯形内
+* 若超出 → 自动缩小裁剪框直到完全包含在梯形内
+* 结果 → 渲染时不会出现黑色边缘
 
 ---
 
 #### 开发规范
 
-1. **禁止混用坐标系**  
-   所有裁剪逻辑计算必须在**投影空间 (B)** 进行。屏幕坐标仅用于输入，纹理坐标仅用于渲染。
+1. **坐标系分离原则**  
+   * 存储：纹理空间（`.ipo` 文件）
+   * 交互：逻辑空间（Python UI 层）
+   * 黑边检测：投影空间（透视变换后，旋转前）
+   * 渲染：Shader 统一处理所有变换
 
 2. **坐标转换链**  
    ```
-   屏幕交互 (C) → 逆变换 → 投影空间 (B) → 裁剪逻辑 → 透视矩阵 → 纹理空间 (A) → GPU 渲染
+   [存储] 纹理空间 
+      ↓ texture_crop_to_logical()
+   [交互] 逻辑空间 
+      ↓ 透视变换（不含旋转）
+   [验证] 投影空间（黑边检测）
+      ↓ Shader: 透视 → 裁剪 → 旋转
+   [采样] 纹理空间
    ```
 
-3. **防黑边检查位置**  
-   在**投影空间 (B)** 中，使用以下函数进行检查：
-   * `rect_inside_quad(R_crop, Q_valid)` — 检查裁剪框是否完全在有效区域内
-   * `point_in_convex_polygon(point, Q_valid)` — 检查单个点是否在有效区域内
+3. **黑边检查位置**  
+   * Python 层：使用 `rect_inside_quad()` 在投影空间检查（`model.py` 第 158-165 行）
+   * Shader 层：裁剪测试在旋转前进行（`gl_image_viewer.frag` 第 210-221 行）
 
 4. **实现文件参考**  
-   * `src/iPhoto/gui/ui/widgets/perspective_math.py` — 核心几何算法
-   * `src/iPhoto/gui/ui/widgets/gl_crop_controller.py` — 裁剪控制器实现
-   * `src/iPhoto/gui/ui/widgets/gl_renderer.py` — OpenGL 渲染器
+   * `src/iPhoto/gui/ui/widgets/gl_image_viewer.frag` — Shader 坐标变换管线
+   * `src/iPhoto/gui/ui/widgets/gl_image_viewer/geometry.py` — 纹理/逻辑空间转换
+   * `src/iPhoto/gui/ui/widgets/gl_crop/model.py` — 黑边检测逻辑（第 147 行关键）
+   * `src/iPhoto/gui/ui/widgets/perspective_math.py` — 几何算法（包含性检查）
 
 ---
 
 **关键要点**:  
-* 永远在**投影空间 (B)** 执行裁剪逻辑。
-* 屏幕坐标仅用于交互输入。
-* 纹理坐标仅用于 GPU 渲染。
-* 混用坐标系会导致错误的裁剪和视觉瑕疵。
+* **纹理空间**: 持久化存储，不受旋转影响
+* **逻辑空间**: 用户交互空间，Python 层使用
+* **投影空间**: 黑边检测核心，四边形计算时 `rotate_steps=0`
+* **Shader 管线**: 透视 → 裁剪测试 → 旋转 → 采样（顺序不可变）
+* 混用坐标系会导致黑边、裁剪错误和坐标累积误差。
 
 ---
 
