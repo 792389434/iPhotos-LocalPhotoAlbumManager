@@ -223,9 +223,7 @@ void main() {
     }
 
     // Sample the texture at the computed texture-space coordinates
-    vec2 uv_original = uv_tex;
-
-    vec4 texel = texture(uTex, uv_original);
+    vec4 texel = texture(uTex, uv_tex);
     vec3 c = texel.rgb;
 
     float exposure_term    = uExposure   * 1.5;
@@ -243,7 +241,7 @@ void main() {
     c = apply_color_transform(c, uSaturation, uVibrance, uColorCast, uGain);
 
     if (uBWEnabled) {
-        c = apply_bw(c, uv_original);
+        c = apply_bw(c, uv_tex);
     }
     FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }
