@@ -204,23 +204,23 @@ void main() {
         discard;
     }
     
-    // Apply rotation to get texture-space coordinates
-    // After this transformation, uv_tex represents coordinates in the canonical
-    // texture space (0,0 = top-left, 1,1 = bottom-right), regardless of rotation
-    vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
-    
-    // Perform crop test in texture space (unified logic for all rotation angles)
-    // The crop parameters (uCropCX, uCropCY, uCropW, uCropH) are in texture space,
-    // so this test works identically whether the image is rotated 0°, 90°, 180°, or 270°
+    // Perform crop test in LOGICAL space (Before Rotation)
+    // uCrop parameters are passed in Logical Space by Python.
+    // This unifies the logic for all rotation steps (0, 1, 2, 3) to be identical.
+    // The crop test happens in the same coordinate system the user sees,
+    // eliminating rotation-specific bugs and boundary issues.
     float crop_min_x = uCropCX - uCropW * 0.5;
     float crop_max_x = uCropCX + uCropW * 0.5;
     float crop_min_y = uCropCY - uCropH * 0.5;
     float crop_max_y = uCropCY + uCropH * 0.5;
 
-    if (uv_tex.x < crop_min_x || uv_tex.x > crop_max_x ||
-        uv_tex.y < crop_min_y || uv_tex.y > crop_max_y) {
-        discard; // Discard fragments outside the crop region
+    if (uv_perspective.x < crop_min_x || uv_perspective.x > crop_max_x ||
+        uv_perspective.y < crop_min_y || uv_perspective.y > crop_max_y) {
+        discard;
     }
+
+    // Apply rotation to get texture-space coordinates for sampling
+    vec2 uv_tex = apply_rotation_90(uv_perspective, uRotate90);
 
     // Sample the texture at the computed texture-space coordinates
     vec4 texel = texture(uTex, uv_tex);
