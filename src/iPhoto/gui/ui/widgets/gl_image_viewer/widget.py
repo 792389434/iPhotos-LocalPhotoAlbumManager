@@ -7,6 +7,7 @@ GPU-accelerated image viewer (pure OpenGL texture upload; pixel-accurate zoom/pa
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Mapping
 
@@ -108,7 +109,7 @@ class GLImageViewer(QOpenGLWidget):
         self._loading_overlay = LoadingOverlay(self)
         self._transform_controller = ViewTransformController(
             self,
-            texture_size_provider=self._display_texture_dimensions,
+            texture_size_provider=self._texture_dimensions,
             on_zoom_changed=self.zoomChanged.emit,
             on_next_item=self.nextItemRequested.emit,
             on_prev_item=self.prevItemRequested.emit,
@@ -118,7 +119,7 @@ class GLImageViewer(QOpenGLWidget):
 
         # Crop interaction controller
         self._crop_controller = CropInteractionController(
-            texture_size_provider=self._display_texture_dimensions,
+            texture_size_provider=self._texture_dimensions,
             clamp_image_center_to_crop=self._create_clamp_function(),
             transform_controller=self._transform_controller,
             on_crop_changed=self._handle_crop_interaction_changed,
@@ -251,8 +252,13 @@ class GLImageViewer(QOpenGLWidget):
         if self._crop_controller.is_active():
             # Refresh the crop overlay in logical space so it stays aligned when rotation
             # or perspective adjustments change while the interaction mode is active.
-            logical_values = geometry.logical_crop_mapping_from_texture(mapped_adjustments)
-            self._crop_controller.set_active(True, logical_values)
+            texture_values = {
+                "Crop_CX": float(mapped_adjustments.get("Crop_CX", 0.5)),
+                "Crop_CY": float(mapped_adjustments.get("Crop_CY", 0.5)),
+                "Crop_W": float(mapped_adjustments.get("Crop_W", 1.0)),
+                "Crop_H": float(mapped_adjustments.get("Crop_H", 1.0)),
+            }
+            self._crop_controller.set_active(True, texture_values)
         if self._auto_crop_view_locked and not self._crop_controller.is_active():
             self._reapply_locked_crop_view()
         self.update()
@@ -517,8 +523,13 @@ class GLImageViewer(QOpenGLWidget):
     def setCropMode(self, enabled: bool, values: Mapping[str, float] | None = None) -> None:
         was_active = self._crop_controller.is_active()
         source_values = values if values is not None else self._adjustments
-        logical_values = geometry.logical_crop_mapping_from_texture(source_values)
-        self._crop_controller.set_active(enabled, logical_values)
+        texture_values = {
+            "Crop_CX": float(source_values.get("Crop_CX", 0.5)),
+            "Crop_CY": float(source_values.get("Crop_CY", 0.5)),
+            "Crop_W": float(source_values.get("Crop_W", 1.0)),
+            "Crop_H": float(source_values.get("Crop_H", 1.0)),
+        }
+        self._crop_controller.set_active(enabled, texture_values)
         if enabled and not was_active:
             self._cancel_auto_crop_lock()
             self._transform_controller.reset_zoom()
@@ -552,6 +563,7 @@ class GLImageViewer(QOpenGLWidget):
             straighten,
             rotate_steps,
             flip,
+            aspect_ratio=self._compute_logical_aspect_ratio(),
         )
         self._update_cover_scale(straighten, rotate_steps)
 
@@ -734,6 +746,16 @@ class GLImageViewer(QOpenGLWidget):
             return (tex_h, tex_w)
         return (tex_w, tex_h)
 
+    def _compute_logical_aspect_ratio(self) -> float:
+        """Return the aspect ratio used for perspective calculations."""
+
+        display_w, display_h = self._display_texture_dimensions()
+        if display_w > 0 and display_h > 0:
+            ratio = float(display_w) / float(display_h)
+            if math.isfinite(ratio) and ratio > 1e-6:
+                return ratio
+        return 1.0
+
     def _frame_crop_if_available(self) -> bool:
         """Frame the active crop rectangle if the adjustments define one."""
 
@@ -783,14 +805,9 @@ class GLImageViewer(QOpenGLWidget):
     def _handle_crop_interaction_changed(
         self, cx: float, cy: float, width: float, height: float
     ) -> None:
-        """Convert logical crop updates back to texture space before emitting."""
+        """Forward crop updates from the controller."""
 
-        rotate_steps = geometry.get_rotate_steps(self._adjustments)
-        tex_cx, tex_cy, tex_w, tex_h = geometry.logical_crop_to_texture(
-            (float(cx), float(cy), float(width), float(height)),
-            rotate_steps,
-        )
-        self.cropChanged.emit(tex_cx, tex_cy, tex_w, tex_h)
+        self.cropChanged.emit(float(cx), float(cy), float(width), float(height))
 
     def _fit_to_view_scale(self, view_width: float, view_height: float) -> float:
         """Return the baseline scale that fits the texture within the viewport."""

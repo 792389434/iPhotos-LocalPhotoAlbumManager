@@ -123,16 +123,26 @@ class CropInteractionController:
         straighten: float = 0.0,
         rotate_steps: int = 0,
         flip_horizontal: bool = False,
+        *,
+        aspect_ratio: float | None = None,
     ) -> None:
         """Refresh the cached perspective quad and enforce crop constraints."""
-        tex_w, tex_h = self._texture_size_provider()
-        aspect_ratio = 1.0
-        if tex_w > 0 and tex_h > 0:
-            aspect_ratio = float(tex_w) / float(tex_h)
+        aspect_ratio_value = 1.0
+        if aspect_ratio is not None:
+            aspect_ratio_value = float(aspect_ratio)
+        else:
+            tex_w, tex_h = self._texture_size_provider()
+            if tex_w > 0 and tex_h > 0:
+                aspect_ratio_value = float(tex_w) / float(tex_h)
 
         # Track perspective quad changes separately from crop changes
         quad_changed = self._model.update_perspective(
-            vertical, horizontal, straighten, rotate_steps, flip_horizontal, aspect_ratio
+            vertical,
+            horizontal,
+            straighten,
+            rotate_steps,
+            flip_horizontal,
+            aspect_ratio_value,
         )
         if not quad_changed:
             return

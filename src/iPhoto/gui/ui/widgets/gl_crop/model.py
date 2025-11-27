@@ -141,8 +141,33 @@ class CropSessionModel:
             rotate_steps=0,  # Always 0; rotation is handled by shader's uRotate90
             flip_horizontal=new_flip,
         )
-        self._perspective_quad = compute_projected_quad(matrix)
+        logical_quad = compute_projected_quad(matrix)
+        self._perspective_quad = self._transform_quad_to_texture_space(logical_quad, new_rotate)
         return True
+
+    def _transform_quad_to_texture_space(
+        self, quad: list[tuple[float, float]], rotate_steps: int
+    ) -> list[tuple[float, float]]:
+        """Map a logical-space quad back into texture space.
+
+        The shader applies :data:`uRotate90` after the perspective transform, so the
+        quad computed in logical space must be inverted using the same rotation so
+        subsequent crop validations operate in the same coordinate frame as the
+        persisted sidecar values.
+        """
+
+        steps = rotate_steps % 4
+        if steps == 0:
+            return list(quad)
+
+        def _inverse_point(x: float, y: float) -> tuple[float, float]:
+            if steps == 1:
+                return (max(0.0, min(1.0, y)), max(0.0, min(1.0, 1.0 - x)))
+            if steps == 2:
+                return (max(0.0, min(1.0, 1.0 - x)), max(0.0, min(1.0, 1.0 - y)))
+            return (max(0.0, min(1.0, 1.0 - y)), max(0.0, min(1.0, x)))
+
+        return [_inverse_point(pt[0], pt[1]) for pt in quad]
 
     def _current_normalised_rect(self) -> NormalisedRect:
         """Return the current crop as a normalised rect."""
