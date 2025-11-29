@@ -1,6 +1,5 @@
 
 import pytest
-from pathlib import Path
 from iPhotos.src.iPhoto.io.scanner import scan_album
 from iPhotos.src.iPhoto.config import DEFAULT_INCLUDE, DEFAULT_EXCLUDE
 
