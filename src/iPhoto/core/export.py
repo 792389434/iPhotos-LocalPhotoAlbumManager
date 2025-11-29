@@ -132,7 +132,7 @@ def export_asset(source_path: Path, export_root: Path, library_root: Path) -> bo
                 image.save(str(final_dest), "JPG", 100)
                 return True
             else:
-                _LOGGER.error("Failed to render sidecar for %s; skipping export", source_path)
+                _LOGGER.error("Failed to render image with adjustments for %s; skipping export", source_path)
                 return False
 
         # Case B: Unedited or Video -> Copy
