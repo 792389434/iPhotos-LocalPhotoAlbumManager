@@ -105,6 +105,5 @@ def test_render_upload_matrix_transpose_flag(renderer, mock_gl_funcs):
             found = True
             # Expect transpose=1 (True) to confirm the FIX
             assert transpose == 1, "Expected transpose=1 (True)"
-            print("Verified: glUniformMatrix3fv called with transpose=1")
 
     assert found, "glUniformMatrix3fv was not called for uPerspectiveMatrix"
