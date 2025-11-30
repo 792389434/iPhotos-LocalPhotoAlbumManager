@@ -2,10 +2,7 @@
 
 import pytest
 from pathlib import Path
-try:
-    from iPhoto.utils.pathutils import _expand, is_excluded, should_include
-except ImportError:
-    from iPhotos.src.iPhoto.utils.pathutils import _expand, is_excluded, should_include
+from iPhotos.src.iPhoto.utils.pathutils import _expand, is_excluded
 
 def test_expand_single_brace():
     """Verify that single braces without commas are NOT expanded."""
