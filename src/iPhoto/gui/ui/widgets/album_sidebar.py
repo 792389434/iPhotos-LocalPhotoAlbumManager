@@ -269,9 +269,7 @@ class AlbumSidebar(QWidget):
 
         # Explicitly use the sidebar's dark text color to ensure contrast against the
         # fixed light background, regardless of the active application theme.
-        #
-        # NOTE: track_alpha is increased to 60 to ensure visibility against the light background.
-        scrollbar_style = modern_scrollbar_style(SIDEBAR_TEXT_COLOR, track_alpha=60)
+        scrollbar_style = modern_scrollbar_style(SIDEBAR_TEXT_COLOR, track_alpha=30)
 
         full_style = SIDEBAR_TREE_STYLESHEET + "\n" + scrollbar_style
 
