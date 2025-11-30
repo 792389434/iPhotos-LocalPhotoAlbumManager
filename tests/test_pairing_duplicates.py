@@ -67,23 +67,24 @@ def test_still_image_time_preference():
     assert groups[0].motion == "valid.mov", f"Expected valid.mov, got {groups[0].motion}"
 
 
-def test_still_image_time_preference_valid_vs_missing():
+def test_still_image_time_none_vs_valid():
     """
     Verify that a video with a valid still_image_time is preferred
-    over one with missing (None) still_image_time.
+    over one with None still_image_time.
     """
-    cid = "uuid-still-time-missing-test"
+    cid = "uuid-none-vs-valid-test"
 
     photo = {"rel": "photo.heic", "mime": "image/heic", "content_id": cid}
 
-    v_missing = {
-        "rel": "missing.mov",
+    # Video without still_image_time (None)
+    v_none = {
+        "rel": "none.mov",
         "mime": "video/quicktime",
         "content_id": cid,
         "dur": 3.0,
-        "still_image_time": None
     }
 
+    # Video with valid still_image_time
     v_valid = {
         "rel": "valid.mov",
         "mime": "video/quicktime",
@@ -92,9 +93,16 @@ def test_still_image_time_preference_valid_vs_missing():
         "still_image_time": 0.5
     }
 
-    index_rows = [photo, v_missing, v_valid]
-
+    # Test with v_none first in the list
+    index_rows = [photo, v_none, v_valid]
     groups = pair_live(index_rows)
 
     assert len(groups) == 1
     assert groups[0].motion == "valid.mov", f"Expected valid.mov, got {groups[0].motion}"
+
+    # Test with v_valid first in the list to ensure order doesn't matter
+    index_rows_reversed = [photo, v_valid, v_none]
+    groups_reversed = pair_live(index_rows_reversed)
+
+    assert len(groups_reversed) == 1
+    assert groups_reversed[0].motion == "valid.mov", f"Expected valid.mov, got {groups_reversed[0].motion}"
