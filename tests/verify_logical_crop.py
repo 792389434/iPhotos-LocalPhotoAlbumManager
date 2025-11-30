@@ -70,36 +70,30 @@ def shader_logic(uv_corrected, logical_crop_params, rotate_steps):
     uv_tex = apply_rotation_90(uv_perspective, rotate_steps)
     return uv_tex
 
-def test_screen_aligned_crop():
+def test_texture_space_crop():
     """
-    Verifies that the restored logic supports Screen-Aligned Cropping
-    by converting Texture Params -> Logical Params in Python,
-    and checking Logical UVs in Shader.
+    Verifies that the restored logic supports Texture Space Cropping
+    (non-destructive editing standard) by passing texture crop parameters
+    directly to the shader logic, without Python-side conversion.
     """
     # Scenario: 90 CW Rotation.
     # Texture Crop: Left Half (x < 0.5).
-    # Image Top (Texture Y=0) is Screen Right.
-    # Image Left (Texture X=0) is Screen Top.
-    # So Texture Left Half -> Screen Top Half.
+    # Texture crop parameters are used directly.
 
     tex_params = (0.25, 0.5, 0.5, 1.0) # Left Half
     rotate_steps = 1
 
-    # Python Conversion
-    log_params = texture_crop_to_logical(tex_params, rotate_steps)
-    # 90 CW: (1-cy, cx, h, w) -> (0.5, 0.25, 1.0, 0.5)
-    # Center (0.5, 0.25). Width 1.0. Height 0.5.
-    # Y range: [0.0, 0.5].
-    # So Screen Top Half. Correct.
+    # For Texture Space cropping, logical crop params are the same as texture params
+    log_params = tex_params
 
     # Test Point:
-    # Screen Point (0.5, 0.25). Inside Top Half.
+    # Texture Space Point (0.25, 0.5) is the center of the left half.
     # Should PASS.
-    res = shader_logic((0.5, 0.25), log_params, rotate_steps)
+    res = shader_logic((0.25, 0.5), log_params, rotate_steps)
     assert res != "DISCARD"
 
     # Test Point:
-    # Screen Point (0.5, 0.75). Bottom Half.
+    # Texture Space Point (0.75, 0.5) is the center of the right half.
     # Should FAIL.
-    res_fail = shader_logic((0.5, 0.75), log_params, rotate_steps)
+    res_fail = shader_logic((0.75, 0.5), log_params, rotate_steps)
     assert res_fail == "DISCARD"
