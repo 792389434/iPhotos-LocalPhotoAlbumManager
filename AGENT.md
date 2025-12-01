@@ -305,8 +305,7 @@ void main() {
     // Perform crop test in Logical/Screen space.
     // The crop box is defined in Logical Space.
 
-    if (uv_corrected.x < crop_min_x || uv_corrected.x > crop_max_x ||
-        uv_corrected.y < crop_min_y || uv_corrected.y > crop_max_y) {
+    if (uv_corrected.x < crop_min_x || ... ) {
         discard;
     }
 
@@ -315,8 +314,7 @@ void main() {
     vec2 uv_perspective = apply_inverse_perspective(uv_corrected);
 
     // 4. 透视边界检查 (Check against valid texture area in Projected Space)
-    if (uv_perspective.x < 0.0 || uv_perspective.x > 1.0 ||
-        uv_perspective.y < 0.0 || uv_perspective.y > 1.0) {
+    if (uv_perspective.x < 0.0 || ... ) {
         discard;
     }
     
