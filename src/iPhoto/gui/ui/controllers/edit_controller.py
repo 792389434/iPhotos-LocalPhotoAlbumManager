@@ -153,6 +153,14 @@ class EditController(QObject):
         self._sidebar_preview_worker: EditSidebarPreviewWorker | None = None
         self._sidebar_preview_worker_generation: int | None = None
 
+        self._undo_stack: list[dict[str, float | bool]] = []
+        self._redo_stack: list[dict[str, float | bool]] = []
+        self._history_limit = 50
+
+        # Wire up undo triggers from the UI widgets.
+        self._ui.edit_sidebar.interactionStarted.connect(self.push_undo_state)
+        self._ui.edit_image_viewer.cropInteractionStarted.connect(self.push_undo_state)
+
     # ------------------------------------------------------------------
     # Zoom toolbar management
     # ------------------------------------------------------------------
@@ -538,6 +546,42 @@ class EditController(QObject):
         self._preview_manager.update_adjustments(self._session.values())
         self._apply_session_adjustments_to_viewer()
 
+    def push_undo_state(self) -> None:
+        """Capture the current session state onto the undo stack."""
+        if self._session is None:
+            return
+
+        current_state = self._session.values()
+        self._undo_stack.append(current_state)
+        if len(self._undo_stack) > self._history_limit:
+            self._undo_stack.pop(0)
+
+        # New action clears the redo history.
+        self._redo_stack.clear()
+
+    def undo(self) -> None:
+        """Revert the last edit action."""
+        if self._session is None or not self._undo_stack:
+            return
+
+        current_state = self._session.values()
+        self._redo_stack.append(current_state)
+
+        previous_state = self._undo_stack.pop()
+        # Updating the session triggers the UI refresh automatically via signals.
+        self._session.set_values(previous_state)
+
+    def redo(self) -> None:
+        """Restore the previously undone edit action."""
+        if self._session is None or not self._redo_stack:
+            return
+
+        current_state = self._session.values()
+        self._undo_stack.append(current_state)
+
+        next_state = self._redo_stack.pop()
+        self._session.set_values(next_state)
+
     def _handle_crop_changed(self, cx: float, cy: float, width: float, height: float) -> None:
         if self._session is None:
             return
@@ -552,6 +596,7 @@ class EditController(QObject):
     def _handle_rotate_left_clicked(self) -> None:
         if self._session is None:
             return
+        self.push_undo_state()
         updates = self._ui.edit_image_viewer.rotate_image_ccw()
         # Persist the viewer-driven rotation so the backing session stays aligned with the
         # logical coordinate system used by the OpenGL paint path.  Persisting the mapping
@@ -651,6 +696,8 @@ class EditController(QObject):
             self._compare_active = False
             self._active_adjustments = {}
             self._skip_next_preview_frame = False
+            self._undo_stack.clear()
+            self._redo_stack.clear()
 
     # ------------------------------------------------------------------
     # Dedicated edit full screen workflow
@@ -703,6 +750,7 @@ class EditController(QObject):
     def _handle_reset_clicked(self) -> None:
         if self._session is None:
             return
+        self.push_undo_state()
         # Stop any pending preview updates so the reset renders immediately.
         self._preview_manager.cancel_pending_updates()
         self._session.reset()

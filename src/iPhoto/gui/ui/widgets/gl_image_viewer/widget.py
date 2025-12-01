@@ -64,6 +64,8 @@ class GLImageViewer(QOpenGLWidget):
     fullscreenExitRequested = Signal()
     fullscreenToggleRequested = Signal()
     cropChanged = Signal(float, float, float, float)
+    cropInteractionStarted = Signal()
+    cropInteractionFinished = Signal()
 
     def __init__(self, parent: QOpenGLWidget | None = None) -> None:
         super().__init__(parent)
@@ -125,6 +127,8 @@ class GLImageViewer(QOpenGLWidget):
             on_cursor_change=self._handle_cursor_change,
             on_request_update=self.update,
             timer_parent=self,
+            on_interaction_started=self.cropInteractionStarted.emit,
+            on_interaction_finished=self.cropInteractionFinished.emit,
         )
         self._auto_crop_view_locked: bool = False
         self._update_crop_perspective_state()
