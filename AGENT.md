@@ -369,6 +369,11 @@ void main() {
 
 3.  **自动缩放**:
     *   当裁剪框超出有效区域时，基于几何包含关系计算最小缩放比例。
+    *   具体实现请参考：
+        * [`update_perspective()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/model.py)
+        * [`rect_inside_quad()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/geometry.py)
+        * [`auto_scale_crop_to_quad()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/model.py)
+    *   示例场景见测试用例或上述源文件中的注释。
 
 ---
 
