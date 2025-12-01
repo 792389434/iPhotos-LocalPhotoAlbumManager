@@ -302,8 +302,7 @@ void main() {
     vec2 uv_corrected = uv; // Logical/Screen Space
 
     // 2. 裁剪测试 (Crop Test)
-    // Perform crop test in Logical/Screen space.
-    // The crop box is defined in Logical Space.
+    // The crop box is defined by the user on the screen (post-perspective/straighten), so we must mask pixels based on their screen position.
 
     if (uv_corrected.x < crop_min_x || ... ) {
         discard;
