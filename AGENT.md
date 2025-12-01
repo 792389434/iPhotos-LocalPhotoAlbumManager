@@ -369,11 +369,6 @@ void main() {
 
 3.  **自动缩放**:
     *   当裁剪框超出有效区域时，基于几何包含关系计算最小缩放比例。
-    *   具体实现请参考：
-        * [`update_perspective()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/model.py)
-        * [`rect_inside_quad()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/geometry.py)
-        * [`auto_scale_crop_to_quad()` 实现](src/iPhoto/gui/ui/widgets/gl_crop/model.py)
-    *   示例场景见测试用例或上述源文件中的注释。
 
 ---
 
@@ -387,6 +382,13 @@ void main() {
 2.  **宽高比使用规范**
     *   在计算透视矩阵 (`build_perspective_matrix`) 时，必须使用与当前空间匹配的宽高比。
     *   若在逻辑空间计算，必须使用 `logical_aspect_ratio` (旋转 90°/270° 时为 `tex_h/tex_w`)。
+
+**关键要点**:
+* **纹理空间**: 持久化存储，不受旋转影响
+* **逻辑空间**: 用户交互空间，Python 层使用
+* **投影空间**: 黑边检测核心，四边形计算时 `rotate_steps=0`
+* **Shader 管线**: 透视 → 裁剪测试 → 旋转 → 采样（顺序不可变）
+* 混用坐标系会导致黑边、裁剪错误和坐标累积误差。
 
 3.  **旋转处理**
     *   不要在 Python 层手动旋转裁剪框来匹配纹理空间进行校验（易出错）。
