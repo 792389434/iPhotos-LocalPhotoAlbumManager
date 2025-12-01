@@ -324,7 +324,14 @@ void main() {
 
     // 6. 纹理采样
     vec4 texel = texture(uTex, uv_tex);
-    // ...
+
+    // 7. 颜色调整 (Color Adjustments)
+    vec3 c = texel.rgb;
+    // 例如：应用伽马校正 (e.g., apply gamma correction)
+    c = pow(c, vec3(1.0 / 2.2));
+    // 其他色彩调整可在此添加 (exposure, saturation, etc.)
+    // 8. 输出最终颜色
+    FragColor = vec4(c, texel.a);
 }
 ```
 
