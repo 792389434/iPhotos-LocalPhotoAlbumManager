@@ -119,6 +119,11 @@ class ViewControllerManager(QObject):
 
         return self._view_controller.is_detail_view_active()
 
+    def is_edit_view_active(self) -> bool:
+        """Return ``True`` when the edit page is currently visible."""
+
+        return self._view_controller.is_edit_view_active()
+
     def show_gallery_view(self) -> None:
         """Switch the stacked widget back to the gallery view."""
 

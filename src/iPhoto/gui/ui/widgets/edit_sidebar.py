@@ -44,6 +44,12 @@ class EditSidebar(QWidget):
     perspectiveInteractionFinished = Signal()
     """Emitted once the user releases a perspective slider."""
 
+    interactionStarted = Signal()
+    """Emitted when any edit interaction (slider drag, toggle, reset) begins."""
+
+    interactionFinished = Signal()
+    """Emitted when an interaction concludes."""
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._session: Optional[EditSession] = None
@@ -126,6 +132,9 @@ class EditSidebar(QWidget):
         self._light_section_container.add_header_control(self.light_reset_button)
         self._light_section_container.add_header_control(self.light_toggle_button)
 
+        self._light_section.interactionStarted.connect(self.interactionStarted)
+        self._light_section.interactionFinished.connect(self.interactionFinished)
+
         scroll_layout.addWidget(self._light_section_container)
 
         scroll_layout.addWidget(self._build_separator(scroll_content))
@@ -152,6 +161,9 @@ class EditSidebar(QWidget):
 
         self._color_section_container.add_header_control(self.color_reset_button)
         self._color_section_container.add_header_control(self.color_toggle_button)
+
+        self._color_section.interactionStarted.connect(self.interactionStarted)
+        self._color_section.interactionFinished.connect(self.interactionFinished)
 
         scroll_layout.addWidget(self._color_section_container)
 
@@ -185,6 +197,8 @@ class EditSidebar(QWidget):
 
         self._bw_section.paramsPreviewed.connect(self.bwParamsPreviewed)
         self._bw_section.paramsCommitted.connect(self.bwParamsCommitted)
+        self._bw_section.interactionStarted.connect(self.interactionStarted)
+        self._bw_section.interactionFinished.connect(self.interactionFinished)
 
         adjust_layout.addWidget(scroll)
         adjust_container.setLayout(adjust_layout)
@@ -203,6 +217,9 @@ class EditSidebar(QWidget):
         crop_layout.addWidget(self._perspective_controls)
         self._perspective_controls.interactionStarted.connect(self.perspectiveInteractionStarted)
         self._perspective_controls.interactionFinished.connect(self.perspectiveInteractionFinished)
+        # Also connect to generic interaction signals
+        self._perspective_controls.interactionStarted.connect(self.interactionStarted)
+        self._perspective_controls.interactionFinished.connect(self.interactionFinished)
         crop_layout.addStretch(1)
         crop_container.setLayout(crop_layout)
         self._stack.addWidget(crop_container)
@@ -351,38 +368,47 @@ class EditSidebar(QWidget):
     def _on_light_reset(self) -> None:
         if self._session is None:
             return
+        self.interactionStarted.emit()
         updates = {key: 0.0 for key in LIGHT_KEYS}
         updates["Light_Master"] = 0.0
         updates["Light_Enabled"] = True
         self._session.set_values(updates)
         self._light_section.refresh_from_session()
         self._sync_light_toggle_state()
+        self.interactionFinished.emit()
 
     def _on_light_toggled(self, checked: bool) -> None:
         self._update_light_toggle_icon(checked)
         if self._session is None:
             return
+        self.interactionStarted.emit()
         self._session.set_value("Light_Enabled", checked)
+        self.interactionFinished.emit()
 
     def _on_color_reset(self) -> None:
         if self._session is None:
             return
+        self.interactionStarted.emit()
         updates = {key: 0.0 for key in COLOR_KEYS}
         updates["Color_Master"] = 0.0
         updates["Color_Enabled"] = True
         self._session.set_values(updates)
         self._color_section.refresh_from_session()
         self._sync_color_toggle_state()
+        self.interactionFinished.emit()
 
     def _on_color_toggled(self, checked: bool) -> None:
         self._update_color_toggle_icon(checked)
         if self._session is None:
             return
+        self.interactionStarted.emit()
         self._session.set_value("Color_Enabled", checked)
+        self.interactionFinished.emit()
 
     def _on_bw_reset(self) -> None:
         if self._session is None:
             return
+        self.interactionStarted.emit()
         updates = {
             "BW_Master": 0.5,
             "BW_Intensity": 0.5,
@@ -394,12 +420,15 @@ class EditSidebar(QWidget):
         self._session.set_values(updates)
         self._bw_section.refresh_from_session()
         self._sync_bw_toggle_state()
+        self.interactionFinished.emit()
 
     def _on_bw_toggled(self, checked: bool) -> None:
         self._update_bw_toggle_icon(checked)
         if self._session is None:
             return
+        self.interactionStarted.emit()
         self._session.set_value("BW_Enabled", checked)
+        self.interactionFinished.emit()
 
     @Slot(str, object)  # 使用 object 以匹配 (float | bool)
     def _on_session_value_changed(self, key: str, value: object) -> None:

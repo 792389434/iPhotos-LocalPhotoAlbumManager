@@ -37,6 +37,8 @@ class CropInteractionController:
         on_cursor_change: Callable[[Qt.CursorShape | None], None],
         on_request_update: Callable[[], None],
         timer_parent: QObject | None = None,
+        on_interaction_started: Callable[[], None] | None = None,
+        on_interaction_finished: Callable[[], None] | None = None,
     ) -> None:
         """Initialize the crop interaction controller.
 
@@ -56,6 +58,10 @@ class CropInteractionController:
             Callback to request widget update/repaint.
         timer_parent:
             Parent QObject for timers (optional).
+        on_interaction_started:
+            Callback triggered when a crop drag operation begins.
+        on_interaction_finished:
+            Callback triggered when a crop drag operation ends.
         """
         self._texture_size_provider = texture_size_provider
         self._clamp_image_center_to_crop = clamp_image_center_to_crop
@@ -63,6 +69,8 @@ class CropInteractionController:
         self._on_crop_changed_callback = on_crop_changed
         self._on_cursor_change = on_cursor_change
         self._on_request_update = on_request_update
+        self._on_interaction_started = on_interaction_started
+        self._on_interaction_finished = on_interaction_finished
 
         # Core modules
         self._model = CropSessionModel()
@@ -244,6 +252,8 @@ class CropInteractionController:
 
         self._crop_drag_handle = handle
         self._crop_dragging = True
+        if self._on_interaction_started is not None:
+            self._on_interaction_started()
         self._crop_last_pos = QPointF(pos)
 
         # Create appropriate strategy
@@ -299,10 +309,15 @@ class CropInteractionController:
         if self._current_strategy is not None:
             self._current_strategy.on_end()
             self._current_strategy = None
+
+        was_dragging = self._crop_dragging
         self._crop_dragging = False
         self._crop_drag_handle = CropHandle.NONE
         self._on_cursor_change(None)
         self._animator.restart_idle()
+
+        if was_dragging and self._on_interaction_finished is not None:
+            self._on_interaction_finished()
 
     def handle_wheel(self, event: QWheelEvent) -> None:
         """Handle wheel events in crop mode for zooming."""
