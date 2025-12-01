@@ -578,6 +578,8 @@ class EditController(QObject):
 
         current_state = self._session.values()
         self._undo_stack.append(current_state)
+        if len(self._undo_stack) > self._history_limit:
+            self._undo_stack.pop(0)
 
         next_state = self._redo_stack.pop()
         self._session.set_values(next_state)
