@@ -122,10 +122,61 @@ pytest
 ```
 
 ### Robustness
-*   Tests must simulate missing or corrupt files to ensure the application handles them gracefully without crashing.
+*   Tests must simulate missing or corrupt files to ensuring the application handles them gracefully without crashing.
 *   **Rebuildability**: Verify that deleting `index.jsonl` or `links.json` results in them being correctly rebuilt by the system.
 
-## 9. Pull Request Process
+## 9. Submitting Issues
+
+We use GitHub issues to track bugs and features.
+
+### Bug Reports
+When reporting a bug, please include:
+1.  **Summary**: A concise description of the issue.
+2.  **Steps to Reproduce**: Detailed steps to help us see the problem.
+    *   Example: "Open album -> Right click photo -> Select 'Crop'..."
+3.  **Expected vs. Actual Behavior**: What you thought would happen vs. what actually happened.
+4.  **Environment**: OS version, Python version, and iPhoto version.
+
+### Feature Requests
+Please describe the feature you would like to see, why you need it, and how it should work.
+
+## 10. Commit Message Guidelines
+
+We follow a standard commit message format to ensure history is readable.
+
+*   **Structure**:
+    ```text
+    <type>(<scope>): <subject>
+
+    <body>
+    ```
+*   **Subject Line**:
+    *   Use the imperative mood ("Add feature" not "Added feature").
+    *   Limit to 50 characters.
+    *   No period at the end.
+*   **Body**:
+    *   Wrap lines at 72 characters.
+    *   Explain *what* and *why*, not *how*.
+
+## 11. Code Review Guidelines
+
+All submissions will be reviewed by maintainers. We look for:
+
+*   **Architectural Consistency**: Adherence to the layered architecture (Core vs. GUI) and Facade pattern.
+*   **Data Safety**: Strict compliance with non-destructive editing and file locking rules.
+*   **Test Coverage**: New features must include unit tests; bug fixes must include regression tests.
+*   **Readability**: Clean, typed, and well-documented code following our style guide.
+
+## 12. Contribution Areas
+
+We welcome contributions across the entire stack:
+
+*   **Core Backend**: Filesystem logic, pairing algorithms, and performance optimization (NumPy/Numba).
+*   **GUI (PySide6)**: New widgets, view controllers, and interaction improvements.
+*   **OpenGL/Maps**: Shader development, map rendering, and high-performance image viewers.
+*   **Documentation & Tooling**: Improving guides, adding docstrings, and enhancing CI/CD scripts.
+
+## 13. Pull Request Process
 
 ### Branching Strategy
 Please use the following naming convention for your branches:
