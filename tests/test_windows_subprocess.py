@@ -2,7 +2,7 @@
 import os
 import subprocess
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Ensure we can import the modules
 from iPhoto.utils.exiftool import get_metadata_batch
