@@ -26,7 +26,7 @@ def mock_windows_environment(monkeypatch):
         monkeypatch.setattr(subprocess, "SW_HIDE", 0, raising=False)
 
     if not hasattr(subprocess, "CREATE_NO_WINDOW"):
-         monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+        monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
 
 def test_exiftool_windows_startupinfo(mock_windows_environment):
     """Test that exiftool calls subprocess with STARTUPINFO on Windows."""
