@@ -87,7 +87,6 @@ class FlowLayout(QLayout):
         spacing_y = self.verticalSpacing()
 
         for item in self._items:
-            wid = item.widget()
             space_x = spacing_x
             space_y = spacing_y
 
