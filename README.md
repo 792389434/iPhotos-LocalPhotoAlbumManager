@@ -76,7 +76,7 @@ Toggle a floating metadata panel showing EXIF, camera/lens info, exposure, apert
 | Concept | Description |
 |----------|--------------|
 | **Folder = Album** | Managed via `.iphoto.album.json` manifest files. |
-| **Incremental Scan** | Scans new/changed files and caches results in `.iPhoto/index.jsonl`. |
+| **Incremental Scan** | Scans new/changed files and caches results in `.iphoto/index.jsonl`. |
 | **Live Pairing** | Auto-matches Live Photos using `ContentIdentifier` or time proximity. |
 | **Reverse Geocoding** | Converts GPS coordinates into human-readable locations (e.g. “London”). |
 | **Non-Destructive Edit** | Stores Light/Color/B&W/Crop adjustments in `.ipo` sidecar files. |
