@@ -322,7 +322,10 @@ class DashboardThumbnailLoader(QObject):
         except OSError:
             return
 
-        stat = image_path.stat()
+        try:
+            stat = image_path.stat()
+        except OSError:
+            return
         stamp = int(stat.st_mtime * 1_000_000_000)
 
         # For the cache file name, we want it to be based on the album-relative path so it's stable
