@@ -173,9 +173,9 @@ This is the PySide6-based desktop application layer, which depends on the backen
 | ├─ **`widgets/`** |— Reusable custom QWidget components such as `AlbumSidebar`, `PhotoMapView`, `PlayerBar`, and edit-related widgets (see below). |
 | └─ **`tasks/`**| — `QRunnable` implementations for background tasks, e.g., `ThumbnailLoader` and `ScannerWorker`. |
 
-#### Edit Widgets (`src/iPhoto/gui/ui/widgets/`)
+#### Edit Widgets & Modules (`src/iPhoto/gui/ui/widgets/`)
 
-The edit system is composed of modular widgets for non-destructive photo adjustments:
+The edit system is composed of modular widgets and submodules for non-destructive photo adjustments:
 
 | File / Module | Description |
 |----------------|-------------|
@@ -187,8 +187,8 @@ The edit system is composed of modular widgets for non-destructive photo adjustm
 | **`edit_topbar.py`** | Edit mode toolbar with Adjust/Crop toggle and action buttons. |
 | **`edit_strip.py`** | Custom slider widgets (`BWSlider`) used throughout the edit panels. |
 | **`thumbnail_strip_slider.py`** | Slider with real-time thumbnail preview strip. |
-| **`gl_image_viewer/`** | OpenGL-based image viewer module for real-time preview rendering. |
-| **`gl_crop/`** | Crop interaction module (model, controller, hit-tester, animator, strategies). |
+| **`gl_image_viewer/`** | OpenGL-based image viewer submodule for real-time preview rendering. |
+| **`gl_crop/`** | Crop interaction submodule (model, controller, hit-tester, animator, strategies). |
 | **`gl_renderer.py`** | Core OpenGL renderer handling texture upload and shader uniforms. |
 | **`perspective_math.py`** | Geometric utilities for perspective matrix calculation and black-border validation. |
 
