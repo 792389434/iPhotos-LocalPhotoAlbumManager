@@ -442,7 +442,6 @@ class AlbumsDashboard(QWidget):
     def refresh(self) -> None:
         # Increment generation to invalidate pending workers from previous refresh
         self._current_generation += 1
-        
         # Clear existing
         while self.flow_layout.count():
             item = self.flow_layout.takeAt(0)
