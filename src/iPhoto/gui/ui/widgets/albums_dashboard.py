@@ -8,6 +8,7 @@ from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import (
     QObject,
+    QPoint,
     QRunnable,
     QSize,
     Qt,
@@ -19,6 +20,8 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QImage,
+    QPainter,
+    QPainterPath,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -44,6 +47,65 @@ if TYPE_CHECKING:
     from ....library.tree import AlbumNode
 
 
+class RoundedImageView(QWidget):
+    """Widget that draws a pixmap clipped to a rounded shape (left side only)."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(80, 80)
+        self._pixmap: QPixmap | None = None
+        self._placeholder: QPixmap | None = None
+        self._bg_color = QColor("#B0BEC5")
+
+    def setPixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self.update()
+
+    def setPlaceholder(self, pixmap: QPixmap) -> None:
+        self._placeholder = pixmap
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        path = QPainterPath()
+        r = 12.0
+        w = float(self.width())
+        h = float(self.height())
+
+        # Draw shape: Left side rounded, right side straight
+        path.moveTo(w, 0)
+        path.lineTo(w, h)
+        path.lineTo(r, h)
+        path.quadTo(0, h, 0, h - r)
+        path.lineTo(0, r)
+        path.quadTo(0, 0, r, 0)
+        path.closeSubpath()
+
+        painter.setClipPath(path)
+
+        if self._pixmap and not self._pixmap.isNull():
+            # Scale cover to fill
+            scaled = self._pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        else:
+            # Background
+            painter.fillPath(path, self._bg_color)
+            # Placeholder icon centered
+            if self._placeholder and not self._placeholder.isNull():
+                px = (self.width() - self._placeholder.width()) // 2
+                py = (self.height() - self._placeholder.height()) // 2
+                painter.drawPixmap(px, py, self._placeholder)
+
+
 class AlbumCard(QFrame):
     """Card widget representing a single album."""
 
@@ -60,12 +122,10 @@ class AlbumCard(QFrame):
         self.layout.setSpacing(0)
 
         # 3. Left side: Image
-        self.image_label = QLabel()
-        self.image_label.setFixedSize(80, 80)
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setObjectName("ImagePart")
+        self.image_view = RoundedImageView(self)
+        self.image_view.setObjectName("ImagePart")
         # Placeholder icon or text until image loads
-        self.image_label.setPixmap(
+        self.image_view.setPlaceholder(
             load_icon("photo.on.rectangle", color="#FFFFFF").pixmap(32, 32)
         )
 
@@ -94,7 +154,7 @@ class AlbumCard(QFrame):
         self.text_layout.addWidget(self.title_label)
         self.text_layout.addWidget(self.count_label)
 
-        self.layout.addWidget(self.image_label)
+        self.layout.addWidget(self.image_view)
         self.layout.addWidget(self.text_container)
 
         # 5. Stylesheet
@@ -103,17 +163,6 @@ class AlbumCard(QFrame):
             #AlbumCard {
                 background-color: #FFFFFF;
                 border-radius: 12px;
-            }
-
-            /* Left image part: rounded on left, straight on right */
-            #ImagePart {
-                background-color: #B0BEC5;
-                color: white;
-                font-weight: bold;
-                border-top-left-radius: 12px;
-                border-bottom-left-radius: 12px;
-                border-top-right-radius: 0px;
-                border-bottom-right-radius: 0px;
             }
 
             /* Right text part: transparent */
@@ -145,13 +194,7 @@ class AlbumCard(QFrame):
 
     def set_cover_image(self, pixmap: QPixmap) -> None:
         """Update the cover image."""
-        self.image_label.setPixmap(
-            pixmap.scaled(
-                self.image_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
+        self.image_view.setPixmap(pixmap)
 
 
 class DashboardLoaderSignals(QObject):
@@ -382,7 +425,7 @@ class AlbumsDashboard(QWidget):
 
         # Load cover
         if cover_path:
-            self._thumb_loader.request_with_absolute_key(root, cover_path, QSize(80, 80))
+            self._thumb_loader.request_with_absolute_key(root, cover_path, QSize(512, 512))
 
     def _on_thumbnail_ready(self, album_root: Path, pixmap: QPixmap) -> None:
         card = self._cards.get(album_root)
