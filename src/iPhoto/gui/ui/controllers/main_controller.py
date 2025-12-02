@@ -235,6 +235,9 @@ class MainController(QObject):
 
         self._selection_controller.set_selection_mode(False)
         lowered = title.casefold()
+        if lowered == "albums":
+            self._navigation.open_albums_dashboard()
+            return
         if lowered == "location":
             self._navigation.open_location_view()
             if self._context.library.root() is None:
