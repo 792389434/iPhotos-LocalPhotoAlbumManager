@@ -42,6 +42,25 @@ The sidebar provides an auto-generated **Basic Library**, grouping photos into:
 ### 🖼 Immersive Detail View
 An elegant viewer with a filmstrip navigator and floating playback bar for videos.
 
+### 🎨 Non-Destructive Photo Editing
+A comprehensive editing suite with **Adjust** and **Crop** modes:
+
+#### Adjust Mode
+- **Light Adjustments:** Brilliance, Exposure, Highlights, Shadows, Brightness, Contrast, Black Point
+- **Color Adjustments:** Saturation, Vibrance, Cast (white balance correction)
+- **Black & White:** Intensity, Neutrals, Tone, Grain with artistic film presets
+- **Master Sliders:** Each section features an intelligent master slider that distributes values across multiple fine-tuning controls
+- **Live Thumbnails:** Real-time preview strips showing the effect range for each adjustment
+
+#### Crop Mode
+- **Perspective Correction:** Vertical and horizontal keystoning adjustments
+- **Straighten Tool:** ±45° rotation with sub-degree precision
+- **Flip & Mirror:** Horizontal flip support
+- **Interactive Crop Box:** Drag handles, edge snapping, and aspect ratio constraints
+- **Black Border Prevention:** Automatic validation ensures no black edges appear after perspective transforms
+
+All edits are stored in `.ipo` sidecar files, preserving original photos untouched.
+
 ### ℹ️ Floating Info Panel
 Toggle a floating metadata panel showing EXIF, camera/lens info, exposure, aperture, focal length, file size, and more.
 ![Info interface](docs/info1.png)
@@ -60,6 +79,8 @@ Toggle a floating metadata panel showing EXIF, camera/lens info, exposure, apert
 | **Incremental Scan** | Scans new/changed files and caches results in `.iPhoto/index.jsonl`. |
 | **Live Pairing** | Auto-matches Live Photos using `ContentIdentifier` or time proximity. |
 | **Reverse Geocoding** | Converts GPS coordinates into human-readable locations (e.g. “London”). |
+| **Non-Destructive Edit** | Stores Light/Color/B&W/Crop adjustments in `.ipo` sidecar files. |
+| **GPU Rendering** | Real-time OpenGL 3.3 preview with perspective transform and color grading. |
 | **Command Line Tool** | Provides a `iphoto` CLI for album init, scan, pairing, and report generation. |
 
 ---
@@ -103,6 +124,7 @@ iphoto-gui /photos/LondonTrip
 - **Asset Grid:** Adaptive thumbnail layout, selection, and lazy-loaded previews.  
 - **Map View:** Interactive GPS clustering with tile caching.  
 - **Detail Viewer:** Filmstrip navigation and playback controls.  
+- **Edit Mode:** Non-destructive Adjust (Light/Color/B&W) and Crop (perspective/straighten) tools.  
 - **Metadata Panel:** Collapsible EXIF + QuickTime info panel.  
 - **Context Menu:** Copy, Move, Delete, Restore.
 ## 🧱 Project Structure
