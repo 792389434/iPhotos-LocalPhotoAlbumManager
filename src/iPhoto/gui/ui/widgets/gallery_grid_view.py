@@ -52,9 +52,10 @@ class GalleryGridView(AssetGrid):
         num_cols = max(1, int(viewport_width / (min_item_width + gap)))
 
         # Calculate the expanded cell size that will fill the available width.
-        # We subtract 2px from the viewport width to prevent the layout engine from
+        # We subtract 6px from the viewport width to prevent the layout engine from
         # dropping the last column due to rounding errors or strict boundary checks.
-        cell_size = int((viewport_width - 2) / num_cols)
+        # This safety margin accounts for frame borders and potential internal margins.
+        cell_size = int((viewport_width - 6) / num_cols)
         new_item_width = cell_size - gap
 
         current_size = self.iconSize().width()
