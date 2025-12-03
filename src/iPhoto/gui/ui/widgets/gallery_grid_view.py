@@ -13,15 +13,26 @@ from .asset_grid import AssetGrid
 class GalleryGridView(AssetGrid):
     """Dense icon-mode grid tuned for album browsing."""
 
+    # Minimum width (and height) for grid items in pixels
+    MIN_ITEM_WIDTH = 192
+
+    # Gap between grid items (provides 1px padding on each side)
+    ITEM_GAP = 2
+
+    # Safety margin to prevent layout engine from dropping columns due to rounding
+    # errors or strict boundary checks. This accounts for frame borders and
+    # potential internal margins.
+    SAFETY_MARGIN = 6
+
     def __init__(self, parent=None) -> None:  # type: ignore[override]
         super().__init__(parent)
-        icon_size = QSize(192, 192)
+        icon_size = QSize(self.MIN_ITEM_WIDTH, self.MIN_ITEM_WIDTH)
         self._selection_mode_enabled = False
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setIconSize(icon_size)
-        self.setGridSize(QSize(194, 194))
-        self.setSpacing(6)
+        self.setGridSize(QSize(self.MIN_ITEM_WIDTH + self.ITEM_GAP, self.MIN_ITEM_WIDTH + self.ITEM_GAP))
+        self.setSpacing(0)
         self.setUniformItemSizes(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
         self.setMovement(QListView.Movement.Static)
@@ -36,6 +47,37 @@ class GalleryGridView(AssetGrid):
 
         self._updating_style = False
         self._apply_scrollbar_style()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        viewport_width = self.viewport().width()
+        if viewport_width <= 0:
+            return
+
+
+        # Determine how many columns can fit with the minimum size constraint.
+        # We model the grid cell as (item_width + gap), which provides 1px padding
+        # on each side of the item, resulting in a visual 2px gutter between items.
+        num_cols = max(1, int(viewport_width / (self.MIN_ITEM_WIDTH + self.ITEM_GAP)))
+
+        # Calculate the expanded cell size that will fill the available width.
+        # We subtract SAFETY_MARGIN from the viewport width to prevent the layout
+        # engine from dropping the last column due to rounding errors or strict
+        # boundary checks.
+        cell_size = int((viewport_width - self.SAFETY_MARGIN) / num_cols)
+        new_item_width = cell_size - self.ITEM_GAP
+        if new_item_width < self.MIN_ITEM_WIDTH:
+            return  # Don't update if it would make items too small
+
+        current_size = self.iconSize().width()
+        if current_size != new_item_width:
+            new_size = QSize(new_item_width, new_item_width)
+            self.setIconSize(new_size)
+            self.setGridSize(QSize(cell_size, cell_size))
+
+            delegate = self.itemDelegate()
+            if hasattr(delegate, "set_base_size"):
+                delegate.set_base_size(new_item_width)
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.PaletteChange:
