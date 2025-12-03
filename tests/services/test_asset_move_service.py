@@ -176,7 +176,7 @@ def test_move_assets_submits_worker_and_emits_completion(
         (
             source_root,
             destination_root,
-            [(asset, destination_root / asset.name)],
+            [[asset, destination_root / asset.name]],
             True,
             True,
             False,
