@@ -48,7 +48,7 @@ class GalleryGridView(AssetGrid):
         self._updating_style = False
         self._apply_scrollbar_style()
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         viewport_width = self.viewport().width()
         if viewport_width <= 0:
