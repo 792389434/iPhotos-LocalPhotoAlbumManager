@@ -17,8 +17,9 @@ from .status_bar_controller import StatusBarController
 from .view_controller_manager import ViewControllerManager
 
 if TYPE_CHECKING:  # pragma: no cover - import used for typing only
-    from ...appctx import AppContext
+    from ....appctx import AppContext
     from ..main_window import MainWindow
+    from .edit_controller import EditController
 
 
 class MainController(QObject):
@@ -36,6 +37,7 @@ class MainController(QObject):
 
         # Controllers ---------------------------------------------------
         self._dialog = DialogController(window, context, window.ui.status_bar)
+        self._facade.register_restore_prompt(self._dialog.prompt_restore_to_root)
         self._status_bar = StatusBarController(
             window.ui.status_bar,
             window.ui.progress_bar,
@@ -48,11 +50,16 @@ class MainController(QObject):
             self._facade,
             self._data.asset_model(),
             window.ui.sidebar,
-            window.ui.album_label,
             window.ui.status_bar,
             self._dialog,
             self._view_manager.view_controller(),
         )
+        # The navigation controller is created after the edit controller, so
+        # provide the reference now that the instance exists.  This keeps the
+        # edit workflow free to coordinate sidebar suppression before it writes
+        # sidecar files on disk.
+        self._view_manager.edit_controller().set_navigation_controller(self._navigation)
+        self._view_manager.detail_ui().set_navigation_controller(self._navigation)
         self._interaction = InteractionManager(
             window=window,
             context=context,
@@ -76,6 +83,7 @@ class MainController(QObject):
         self._playback = self._interaction.playback()
         self._state_manager = self._interaction.state_manager()
         self._selection_controller = self._interaction.selection()
+        self._edit_controller = self._view_manager.edit_controller()
 
         self._playlist.bind_model(self._asset_model)
         self._connect_signals()
@@ -110,6 +118,7 @@ class MainController(QObject):
 
         # Sidebar navigation
         ui.sidebar.albumSelected.connect(self.open_album_from_path)
+        ui.albums_dashboard_page.albumSelected.connect(self.open_album_from_path)
         ui.sidebar.allPhotosSelected.connect(self._handle_all_photos_selected)
         ui.sidebar.staticNodeSelected.connect(self._handle_static_node_selected)
         ui.sidebar.bindLibraryRequested.connect(self._dialog.bind_library_dialog)
@@ -183,6 +192,8 @@ class MainController(QObject):
             signal.connect(slot)
 
         ui.back_button.clicked.connect(self._handle_back_button_clicked)
+        ui.edit_button.clicked.connect(self._edit_controller.begin_edit)
+        self._edit_controller.editingFinished.connect(self._facade.assetUpdated)
 
     # -----------------------------------------------------------------
     # Slots
@@ -192,6 +203,7 @@ class MainController(QObject):
             self.open_album_from_path(path)
 
     def _handle_back_button_clicked(self) -> None:
+        self._edit_controller.leave_edit_mode()
         self._playback.reset_for_gallery_navigation()
         self._view_controller.show_gallery_view()
 
@@ -207,6 +219,11 @@ class MainController(QObject):
             self._navigation.should_suppress_tree_refresh()
             and self._navigation.is_all_photos_view()
         ):
+            # Sidebar reselections triggered by post-edit tree rebuilds should
+            # not yank the user back to the gallery.  Releasing the suppression
+            # after skipping the automatic callback keeps subsequent user-driven
+            # clicks responsive.
+            self._navigation.release_tree_refresh_suppression_if_edit()
             return
         self._map_controller.hide_map_view()
         self._selection_controller.set_selection_mode(False)
@@ -216,10 +233,14 @@ class MainController(QObject):
         if self._navigation.should_suppress_tree_refresh():
             current_static = self._navigation.static_selection()
             if current_static and current_static.casefold() == title.casefold():
+                self._navigation.release_tree_refresh_suppression_if_edit()
                 return
 
         self._selection_controller.set_selection_mode(False)
         lowered = title.casefold()
+        if lowered == "albums":
+            self._navigation.open_albums_dashboard()
+            return
         if lowered == "location":
             self._navigation.open_location_view()
             if self._context.library.root() is None:
@@ -317,6 +338,16 @@ class MainController(QObject):
     def current_player_state(self):
         return self._state_manager.state
 
+    def edit_controller(self) -> "EditController":
+        """Expose the edit controller so other components can coordinate."""
+
+        return self._edit_controller
+
+    def is_edit_view_active(self) -> bool:
+        """Return ``True`` when the edit UI is currently visible."""
+
+        return self._view_controller.is_edit_view_active()
+
     def is_media_muted(self) -> bool:
         return self._data.media().is_muted()
 
@@ -336,6 +367,7 @@ class MainController(QObject):
             if current_album is not None:
                 try:
                     if current_album.root.resolve() == Path(path).resolve():
+                        self._navigation.release_tree_refresh_suppression_if_edit()
                         return
                 except OSError:
                     pass
